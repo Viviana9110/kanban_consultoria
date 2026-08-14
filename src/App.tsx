@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, ApiError } from './api'
-import type { Company, DashboardData, Diagnostic, DiagnosticStatus, Level, SWOTItem, SWOTType, Ticket, TicketPriority, TicketStatus, User } from './types'
+import type { AIAnalysis, Company, DashboardData, Diagnostic, DiagnosticStatus, Level, SWOTItem, SWOTType, Ticket, TicketPriority, TicketStatus, User } from './types'
 import './App.css'
 
 type View = 'dashboard' | 'tickets' | 'companies'
@@ -215,7 +215,7 @@ function CompanyDetail({ company: companyToShow, onEdit, onDelete, onClose }: { 
 
 function DiagnosticForm({ draft, setDraft, isEdit, saving, onSubmit, onClose }: { draft: DiagnosticDraft; setDraft: React.Dispatch<React.SetStateAction<DiagnosticDraft>>; isEdit: boolean; saving: boolean; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void; onClose: () => void }) { return <div className="drawer-backdrop nested-drawer"><form className="drawer" onSubmit={onSubmit}><div className="drawer-heading"><div><p className="eyebrow">{isEdit ? 'EDITAR DIAGNÓSTICO' : 'NUEVO DIAGNÓSTICO'}</p><h2>{isEdit ? 'Actualizar diagnóstico' : 'Crear diagnóstico'}</h2></div><button type="button" className="icon-button" onClick={onClose}>×</button></div><label>Título<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="Ej. Diagnóstico operativo 2026" minLength={3} required /></label><label>Descripción<textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} placeholder="Describe el alcance de la evaluación..." rows={7} minLength={3} required /></label><label>Estado<select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as DiagnosticStatus })}>{diagnosticStatuses.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><div className="drawer-actions"><button type="button" className="button secondary" onClick={onClose}>Cancelar</button><button className="button primary" disabled={saving}>{saving ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Crear diagnóstico'}</button></div></form></div> }
 
-function DiagnosticDetail({ diagnostic, onBack, onEdit, onDelete }: { diagnostic: Diagnostic; onBack: () => void; onEdit: () => void; onDelete: () => void }) {
+function DiagnosticDetailBase({ diagnostic, onBack, onEdit, onDelete }: { diagnostic: Diagnostic; onBack: () => void; onEdit: () => void; onDelete: () => void }) {
   const [items, setItems] = useState<SWOTItem[]>(diagnostic.swotAnalysis?.items ?? [])
   const [itemDraft, setItemDraft] = useState<SWOTDraft>(emptySWOTDraft)
   const [editingItem, setEditingItem] = useState<SWOTItem | null>(null)
@@ -287,5 +287,22 @@ function PageError({ message }: { message: string }) { return <div className="pa
 function initials(name: string) { return name.split(' ').map((part) => part[0]).slice(0, 2).join('').toUpperCase() }
 function firstName(name: string) { return name.split(' ')[0] }
 function relativeDate(date: string) { const value = new Date(date); const days = Math.floor((Date.now() - value.getTime()) / 86400000); if (days === 0) return 'Hoy'; if (days === 1) return 'Ayer'; if (days < 7) return `Hace ${days} días`; return value.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) }
+
+function DiagnosticDetail({ diagnostic, onBack, onEdit, onDelete }: { diagnostic: Diagnostic; onBack: () => void; onEdit: () => void; onDelete: () => void }) {
+  const [analysis, setAnalysis] = useState<AIAnalysis | null>(null)
+  const [analysisLoading, setAnalysisLoading] = useState(true)
+  const [processing, setProcessing] = useState(false)
+  const [analysisError, setAnalysisError] = useState('')
+  const loadAnalysis = useCallback(async () => {
+    setAnalysisLoading(true)
+    try { const result = await api<{ analysis: AIAnalysis }>(`/diagnostics/${diagnostic.id}/ai-analysis`); setAnalysis(result.analysis) } catch (error) { if (!(error instanceof ApiError && error.status === 404)) setAnalysisError('No se pudo cargar el análisis guardado.') } finally { setAnalysisLoading(false) }
+  }, [diagnostic.id])
+  useEffect(() => { const timer = window.setTimeout(() => { void loadAnalysis() }, 0); return () => window.clearTimeout(timer) }, [loadAnalysis])
+  async function runAnalysis() { if (processing) return; setProcessing(true); setAnalysisError(''); try { const result = await api<{ analysis: AIAnalysis }>(`/diagnostics/${diagnostic.id}/ai-analysis`, { method: 'POST' }); setAnalysis(result.analysis) } catch (error) { setAnalysisError(error instanceof ApiError && error.status === 503 ? 'El análisis IA no está configurado todavía. Añade OPENAI_API_KEY en el backend.' : error instanceof ApiError ? error.message : 'No se pudo generar el análisis IA.') } finally { setProcessing(false) } }
+  return <><div className="ai-trigger"><div><p className="detail-label">ANÁLISIS ASISTIDO</p><strong>Lectura estratégica con IA</strong><small>Basada únicamente en la información de esta DOFA.</small></div><button className="button primary small-button" onClick={() => void runAnalysis()} disabled={processing}>{processing ? <><span className="button-loader" />Procesando...</> : analysis ? 'Regenerar análisis' : 'Analizar con IA'}</button></div>{analysisError && <div className="form-error ai-error">{analysisError}</div>}<DiagnosticDetailBase diagnostic={diagnostic} onBack={onBack} onEdit={onEdit} onDelete={onDelete} />{analysis && <AIAnalysisPanel analysis={analysis} loading={analysisLoading} />}{!analysis && analysisLoading && <div className="ai-loading"><span className="loader" />Buscando análisis guardado...</div>}</>
+}
+
+function AIAnalysisPanel({ analysis, loading }: { analysis: AIAnalysis; loading: boolean }) { return <section className="ai-analysis-panel"><div className="ai-panel-heading"><div><p className="detail-label">RESULTADO ESTRUCTURADO</p><h3>Análisis IA</h3></div><span className="ai-badge">IA</span></div>{loading && <div className="ai-loading"><span className="loader" />Actualizando análisis...</div>}<div className="ai-summary-grid"><article><h4>Resumen ejecutivo</h4><p>{analysis.executiveSummary}</p></article><article><h4>Diagnóstico</h4><p>{analysis.diagnosis}</p></article></div><AISection title="Hallazgos" items={analysis.keyFindings.map((item) => `${item.basis === 'FACT' ? 'Hecho' : 'Inferencia'}: ${item.finding}`)} /><div className="ai-strategy-grid"><AISection title="Estrategias FO" items={analysis.foStrategies} /><AISection title="Estrategias DO" items={analysis.doStrategies} /><AISection title="Estrategias FA" items={analysis.faStrategies} /><AISection title="Estrategias DA" items={analysis.daStrategies} /></div><div className="ai-summary-grid"><AISection title="Riesgos prioritarios" items={analysis.priorityRisks} /><AISection title="Oportunidades prioritarias" items={analysis.priorityOpportunities} /></div><div className="ai-recommendations"><h4>Recomendaciones</h4>{analysis.recommendations.map((recommendation) => <article className="ai-recommendation" key={recommendation.title}><div><strong>{recommendation.title}</strong><span className={`level-pill ${recommendation.priority.toLowerCase()}`}>{recommendation.priority === 'HIGH' ? 'Alta' : recommendation.priority === 'MEDIUM' ? 'Media' : 'Baja'}</span></div><p>{recommendation.description}</p><small><b>Impacto esperado:</b> {recommendation.expectedImpact}</small><small><b>Acción sugerida:</b> {recommendation.suggestedAction}</small></article>)}</div></section> }
+function AISection({ title, items }: { title: string; items: string[] }) { return <article className="ai-section"><h4>{title}</h4>{items.length ? <ul>{items.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul> : <p className="ai-empty">Sin elementos.</p>}</article> }
 
 export default App

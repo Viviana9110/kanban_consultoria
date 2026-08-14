@@ -44,6 +44,24 @@ export type Diagnostic = {
   swotAnalysis: { id: string; diagnosticId: string; createdAt: string; updatedAt: string; items: SWOTItem[] } | null
 }
 
+export type AIRecommendation = { title: string; description: string; priority: Level; expectedImpact: string; suggestedAction: string }
+export type AIAnalysis = {
+  id: string
+  diagnosticId: string
+  executiveSummary: string
+  diagnosis: string
+  keyFindings: Array<{ finding: string; basis: 'FACT' | 'INFERENCE' }>
+  foStrategies: string[]
+  doStrategies: string[]
+  faStrategies: string[]
+  daStrategies: string[]
+  priorityRisks: string[]
+  priorityOpportunities: string[]
+  recommendations: AIRecommendation[]
+  createdAt: string
+  updatedAt: string
+}
+
 export type Ticket = {
   id: string
   title: string

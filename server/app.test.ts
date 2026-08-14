@@ -3,7 +3,8 @@ import request from 'supertest'
 import { describe, expect, it, vi } from 'vitest'
 import type { PrismaClient, Role } from '@prisma/client'
 import { createApp } from './app.js'
-import { companyCreateSchema, companyUpdateSchema, diagnosticCreateSchema, diagnosticUpdateSchema, loginSchema, swotItemCreateSchema, swotItemUpdateSchema, ticketCreateSchema, ticketUpdateSchema } from './validation.js'
+import { AIService, AIServiceError } from './ai-service.js'
+import { aiAnalysisSchema, companyCreateSchema, companyUpdateSchema, diagnosticCreateSchema, diagnosticUpdateSchema, loginSchema, swotItemCreateSchema, swotItemUpdateSchema, ticketCreateSchema, ticketUpdateSchema } from './validation.js'
 
 const admin = { id: 'cmadmin000000000000000001', email: 'admin@test.local', name: 'Admin Test', role: 'SUPERUSER' as Role }
 const member = { id: 'cmmember00000000000000001', email: 'member@test.local', name: 'Member Test', role: 'USER' as Role }
@@ -21,6 +22,19 @@ const diagnostic = {
   swotAnalysis: { id: 'cmswot000000000000000001', diagnosticId: 'cmdiagnostic000000000000001', createdAt: new Date('2026-01-03'), updatedAt: new Date('2026-01-03'), items: [] },
 }
 const swotItem = { id: 'cmswotitem0000000000000001', swotId: diagnostic.swotAnalysis.id, type: 'STRENGTH' as const, description: 'Equipo comprometido', priority: 'HIGH' as const, impact: 'HIGH' as const, createdAt: new Date('2026-01-04') }
+const aiResult = {
+  executiveSummary: 'La empresa cuenta con capacidades internas sólidas y oportunidades de mejora.',
+  diagnosis: 'La información indica una operación con fortalezas aprovechables.',
+  keyFindings: [{ finding: 'Equipo comprometido', basis: 'FACT' as const }],
+  foStrategies: ['Usar el compromiso del equipo para capturar oportunidades.'],
+  doStrategies: ['Mejorar procesos para aprovechar oportunidades.'],
+  faStrategies: ['Apoyarse en el equipo para mitigar amenazas.'],
+  daStrategies: ['Reducir debilidades frente a amenazas identificadas.'],
+  priorityRisks: ['Dependencia de procesos manuales.'],
+  priorityOpportunities: ['Mejora de la operación.'],
+  recommendations: [{ title: 'Priorizar procesos', description: 'Documentar el proceso principal.', priority: 'HIGH' as const, expectedImpact: 'Mayor consistencia operativa.', suggestedAction: 'Definir responsables y fechas.' }],
+}
+const persistedAIAnalysis = { id: 'cmaianalysis000000000000001', diagnosticId: diagnostic.id, ...aiResult, createdAt: new Date('2026-01-05'), updatedAt: new Date('2026-01-05') }
 
 function makeDb(role: Role = 'SUPERUSER', ticketOwnerId = member.id, ticketAssigneeId: string | null = null, companyConsultantId: string | null = member.id) {
   const currentUser = role === 'SUPERUSER' ? admin : member
@@ -66,6 +80,10 @@ function makeDb(role: Role = 'SUPERUSER', ticketOwnerId = member.id, ticketAssig
       update: vi.fn(async () => ({ ...swotItem, description: 'Factor actualizado', swot: { diagnostic: { companyId: company.id, company: { consultantId: companyConsultantId } } } })),
       delete: vi.fn(),
     },
+    aIAnalysis: {
+      upsert: vi.fn(async () => persistedAIAnalysis),
+      findUnique: vi.fn(async () => persistedAIAnalysis),
+    },
   }
   return db as unknown as PrismaClient
 }
@@ -81,6 +99,8 @@ describe('validation schemas', () => {
     expect(diagnosticUpdateSchema.safeParse({}).success).toBe(false)
     expect(swotItemCreateSchema.safeParse({ type: 'UNKNOWN', description: '', priority: 'HIGH', impact: 'HIGH' }).success).toBe(false)
     expect(swotItemUpdateSchema.safeParse({}).success).toBe(false)
+    expect(aiAnalysisSchema.safeParse(aiResult).success).toBe(true)
+    expect(aiAnalysisSchema.safeParse({ ...aiResult, recommendations: [{ title: 'invalid' }] }).success).toBe(false)
   })
 })
 
@@ -123,8 +143,10 @@ describe('authentication and authorization API', () => {
       request(app).post(`/api/diagnostics/${diagnostic.id}/swot/items`),
       request(app).patch(`/api/swot/items/${swotItem.id}`),
       request(app).delete(`/api/swot/items/${swotItem.id}`),
+      request(app).post(`/api/diagnostics/${diagnostic.id}/ai-analysis`),
+      request(app).get(`/api/diagnostics/${diagnostic.id}/ai-analysis`),
     ])
-    expect(responses.map((response) => response.status)).toEqual([401, 401, 401, 401, 401, 401, 401, 401, 401, 401])
+    expect(responses.map((response) => response.status)).toEqual([401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 401])
   })
 
   it('invalidates the session and cookie on logout', async () => {
@@ -292,5 +314,57 @@ describe('diagnostics and SWOT API', () => {
     expect((await agent.post(`/api/diagnostics/${diagnostic.id}/swot/items`).send({ type: 'THREAT', description: 'Intrusión', priority: 'LOW', impact: 'LOW' })).status).toBe(404)
     expect((await agent.patch(`/api/swot/items/${swotItem.id}`).send({ description: 'Intrusión' })).status).toBe(404)
     expect((await agent.delete(`/api/swot/items/${swotItem.id}`)).status).toBe(404)
+  })
+})
+
+describe('AI analysis service and API', () => {
+  it('validates a mocked OpenAI response before returning it', async () => {
+    const client = { responses: { create: vi.fn(async () => ({ output_text: JSON.stringify(aiResult) })) } }
+    const service = new AIService(client)
+    const result = await service.analyze({ title: diagnostic.title, description: diagnostic.description, status: diagnostic.status, swotItems: [swotItem] })
+    expect(result).toEqual(aiResult)
+    expect(client.responses.create).toHaveBeenCalledOnce()
+  })
+
+  it('rejects an invalid mocked OpenAI response without producing a result', async () => {
+    const client = { responses: { create: vi.fn(async () => ({ output_text: JSON.stringify({ executiveSummary: 'incompleto' }) })) } }
+    const service = new AIService(client)
+    await expect(service.analyze({ title: diagnostic.title, description: diagnostic.description, status: diagnostic.status, swotItems: [] })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+  })
+
+  it('persists and retrieves an authorized AI analysis', async () => {
+    const aiService = { analyze: vi.fn(async () => aiResult) } as unknown as AIService
+    const agent = request.agent(createApp(makeDb('SUPERUSER'), aiService))
+    await agent.post('/api/auth/login').send({ email: admin.email, password: 'Password123!' })
+    const created = await agent.post(`/api/diagnostics/${diagnostic.id}/ai-analysis`)
+    expect(created.status).toBe(200)
+    expect(created.body.analysis.executiveSummary).toBe(aiResult.executiveSummary)
+    expect((await agent.get(`/api/diagnostics/${diagnostic.id}/ai-analysis`)).status).toBe(200)
+    expect(aiService.analyze).toHaveBeenCalledOnce()
+  })
+
+  it('returns a controlled error for missing configuration and invalid service output', async () => {
+    const unconfigured = request.agent(createApp(makeDb('SUPERUSER'), new AIService()))
+    await unconfigured.post('/api/auth/login').send({ email: admin.email, password: 'Password123!' })
+    const unavailable = await unconfigured.post(`/api/diagnostics/${diagnostic.id}/ai-analysis`)
+    expect(unavailable.status).toBe(503)
+    expect(unavailable.body).toEqual({ error: 'AI analysis is not configured' })
+
+    const invalidService = { analyze: vi.fn(async () => { throw new AIServiceError('INVALID_RESPONSE') }) } as unknown as AIService
+    const app = createApp(makeDb('SUPERUSER'), invalidService)
+    const agent = request.agent(app)
+    await agent.post('/api/auth/login').send({ email: admin.email, password: 'Password123!' })
+    const invalid = await agent.post(`/api/diagnostics/${diagnostic.id}/ai-analysis`)
+    expect(invalid.status).toBe(502)
+    expect(invalid.body).toEqual({ error: 'AI returned an invalid analysis' })
+  })
+
+  it('blocks AI analysis access through a diagnostic ID from another company', async () => {
+    const aiService = { analyze: vi.fn(async () => aiResult) } as unknown as AIService
+    const agent = request.agent(createApp(makeDb('USER', member.id, null, admin.id), aiService))
+    await agent.post('/api/auth/login').send({ email: member.email, password: 'Password123!' })
+    expect((await agent.post(`/api/diagnostics/${diagnostic.id}/ai-analysis`)).status).toBe(404)
+    expect((await agent.get(`/api/diagnostics/${diagnostic.id}/ai-analysis`)).status).toBe(404)
+    expect(aiService.analyze).not.toHaveBeenCalled()
   })
 })

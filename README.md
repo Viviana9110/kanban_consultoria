@@ -53,6 +53,7 @@ El proxy de Vite envía `/api` a `http://localhost:4000`.
 - `GET /api/companies/:companyId/diagnostics`, `POST /api/companies/:companyId/diagnostics`
 - `GET /api/diagnostics/:id`, `PATCH /api/diagnostics/:id`, `DELETE /api/diagnostics/:id`
 - `POST /api/diagnostics/:id/swot/items`, `PATCH /api/swot/items/:id`, `DELETE /api/swot/items/:id`
+- `POST /api/diagnostics/:id/ai-analysis`, `GET /api/diagnostics/:id/ai-analysis`
 - `GET /api/dashboard`
 
-Las sesiones usan cookies `HttpOnly` persistentes y el backend aplica autorización por rol, validación Zod, CORS restringido y rate limiting al login.
+Las sesiones usan cookies `HttpOnly` persistentes y el backend aplica autorización por rol, validación Zod, CORS restringido y rate limiting al login. `OPENAI_API_KEY` solo se configura en el backend; sin ella el endpoint IA responde de forma controlada.

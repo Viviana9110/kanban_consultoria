@@ -122,6 +122,7 @@ model QualityDiagnostic {
   company        Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdBy      User             @relation("CreatedDiagnostics", fields: [createdById], references: [id], onDelete: Restrict)
   swotAnalysis   SWOTAnalysis?
+  aiAnalysis     AIAnalysis?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
@@ -151,4 +152,22 @@ model SWOTItem {
 
   @@index([swotId])
   @@index([type])
+}
+
+model AIAnalysis {
+  id                    String           @id @default(cuid())
+  diagnosticId          String           @unique
+  executiveSummary      String
+  diagnosis             String
+  keyFindings           Json
+  foStrategies          Json
+  doStrategies          Json
+  faStrategies          Json
+  daStrategies          Json
+  priorityRisks         Json
+  priorityOpportunities Json
+  recommendations       Json
+  diagnostic            QualityDiagnostic @relation(fields: [diagnosticId], references: [id], onDelete: Cascade)
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
 }

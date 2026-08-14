@@ -79,3 +79,29 @@ export const swotItemUpdateSchema = swotItemCreateSchema.partial().refine(
   (value) => Object.keys(value).length > 0,
   'At least one field is required',
 )
+
+export const aiFindingSchema = z.object({
+  finding: z.string().trim().min(1).max(2000),
+  basis: z.enum(['FACT', 'INFERENCE']),
+})
+
+export const aiRecommendationSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  description: z.string().trim().min(1).max(3000),
+  priority: priorityLevelSchema,
+  expectedImpact: z.string().trim().min(1).max(1000),
+  suggestedAction: z.string().trim().min(1).max(2000),
+})
+
+export const aiAnalysisSchema = z.object({
+  executiveSummary: z.string().trim().min(1).max(5000),
+  diagnosis: z.string().trim().min(1).max(5000),
+  keyFindings: z.array(aiFindingSchema).max(30),
+  foStrategies: z.array(z.string().trim().min(1).max(3000)).max(30),
+  doStrategies: z.array(z.string().trim().min(1).max(3000)).max(30),
+  faStrategies: z.array(z.string().trim().min(1).max(3000)).max(30),
+  daStrategies: z.array(z.string().trim().min(1).max(3000)).max(30),
+  priorityRisks: z.array(z.string().trim().min(1).max(2000)).max(30),
+  priorityOpportunities: z.array(z.string().trim().min(1).max(2000)).max(30),
+  recommendations: z.array(aiRecommendationSchema).max(30),
+})

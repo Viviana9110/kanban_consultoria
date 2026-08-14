@@ -8,7 +8,8 @@ import { Prisma, PrismaClient, Role, TicketPriority, TicketStatus } from '@prism
 import { env } from './env.js'
 import { prisma } from './prisma.js'
 import { authenticate, authorize, clearSessionCookie, createSession, publicUser } from './auth.js'
-import { companyCreateSchema, companyQuerySchema, companyUpdateSchema, diagnosticCreateSchema, diagnosticUpdateSchema, loginSchema, swotItemCreateSchema, swotItemUpdateSchema, ticketCreateSchema, ticketQuerySchema, ticketUpdateSchema, userCreateSchema } from './validation.js'
+import { AIService, AIServiceError } from './ai-service.js'
+import { aiAnalysisSchema, companyCreateSchema, companyQuerySchema, companyUpdateSchema, diagnosticCreateSchema, diagnosticUpdateSchema, loginSchema, swotItemCreateSchema, swotItemUpdateSchema, ticketCreateSchema, ticketQuerySchema, ticketUpdateSchema, userCreateSchema } from './validation.js'
 
 const asyncHandler = (handler: RequestHandler): RequestHandler => (request, response, next) => Promise.resolve(handler(request, response, next)).catch(next)
 
@@ -20,6 +21,7 @@ const diagnosticInclude = { company: { select: { id: true, name: true, consultan
 const diagnosticView = (diagnostic: Prisma.QualityDiagnosticGetPayload<{ include: typeof diagnosticInclude }>) => diagnostic
 const swotItemAccessInclude = { swot: { include: { diagnostic: { select: { companyId: true, company: { select: { consultantId: true } } } } } } } as const
 const swotItemView = (item: Prisma.SWOTItemGetPayload<{ include: typeof swotItemAccessInclude }>) => ({ id: item.id, swotId: item.swotId, type: item.type, description: item.description, priority: item.priority, impact: item.impact, createdAt: item.createdAt })
+const aiAnalysisView = (analysis: { id: string; diagnosticId: string; executiveSummary: string; diagnosis: string; keyFindings: unknown; foStrategies: unknown; doStrategies: unknown; faStrategies: unknown; daStrategies: unknown; priorityRisks: unknown; priorityOpportunities: unknown; recommendations: unknown; createdAt: Date; updatedAt: Date }) => ({ id: analysis.id, diagnosticId: analysis.diagnosticId, ...aiAnalysisSchema.parse({ executiveSummary: analysis.executiveSummary, diagnosis: analysis.diagnosis, keyFindings: analysis.keyFindings, foStrategies: analysis.foStrategies, doStrategies: analysis.doStrategies, faStrategies: analysis.faStrategies, daStrategies: analysis.daStrategies, priorityRisks: analysis.priorityRisks, priorityOpportunities: analysis.priorityOpportunities, recommendations: analysis.recommendations }), createdAt: analysis.createdAt, updatedAt: analysis.updatedAt })
 
 const scopeForUser = (request: Request): Prisma.TicketWhereInput => request.user?.role === Role.SUPERUSER ? {} : { OR: [{ createdById: request.user?.id }, { assignedToId: request.user?.id }] }
 
@@ -27,7 +29,7 @@ const canAccessTicket = (request: Request, ticket: { createdById: string; assign
 const scopeForCompany = (request: Request): Prisma.CompanyWhereInput => request.user?.role === Role.SUPERUSER ? {} : { consultantId: request.user?.id }
 const canAccessCompany = (request: Request, company: { consultantId: string | null }) => request.user?.role === Role.SUPERUSER || company.consultantId === request.user?.id
 
-export const createApp = (db: PrismaClient = prisma) => {
+export const createApp = (db: PrismaClient = prisma, aiService: AIService = new AIService()) => {
   const app = express()
   app.use(cors({ origin: env.FRONTEND_URL, credentials: true }))
   app.use(express.json({ limit: '1mb' }))
@@ -273,6 +275,57 @@ export const createApp = (db: PrismaClient = prisma) => {
     }
     await db.sWOTItem.delete({ where: { id: existing.id } })
     response.status(204).send()
+  }))
+
+  app.post('/api/diagnostics/:id/ai-analysis', authMiddleware, asyncHandler(async (request, response) => {
+    const diagnostic = await db.qualityDiagnostic.findUnique({ where: { id: String(request.params.id) }, include: diagnosticInclude })
+    if (!diagnostic || !canAccessCompany(request, diagnostic.company)) {
+      response.status(404).json({ error: 'Diagnostic not found' })
+      return
+    }
+    let result
+    try {
+      result = await aiService.analyze({
+        title: diagnostic.title,
+        description: diagnostic.description,
+        status: diagnostic.status,
+        swotItems: diagnostic.swotAnalysis?.items.map((item) => ({ type: item.type, description: item.description, priority: item.priority, impact: item.impact })) ?? [],
+      })
+    } catch (error) {
+      if (error instanceof AIServiceError) {
+        if (error.code === 'NOT_CONFIGURED') {
+          response.status(503).json({ error: 'AI analysis is not configured' })
+          return
+        }
+        if (error.code === 'INVALID_RESPONSE') {
+          response.status(502).json({ error: 'AI returned an invalid analysis' })
+          return
+        }
+        response.status(502).json({ error: 'AI analysis is temporarily unavailable' })
+        return
+      }
+      throw error
+    }
+    const analysis = await db.aIAnalysis.upsert({
+      where: { diagnosticId: diagnostic.id },
+      create: { diagnosticId: diagnostic.id, ...result },
+      update: { ...result },
+    })
+    response.json({ analysis: aiAnalysisView(analysis) })
+  }))
+
+  app.get('/api/diagnostics/:id/ai-analysis', authMiddleware, asyncHandler(async (request, response) => {
+    const diagnostic = await db.qualityDiagnostic.findUnique({ where: { id: String(request.params.id) }, include: { company: { select: { consultantId: true } } } })
+    if (!diagnostic || !canAccessCompany(request, diagnostic.company)) {
+      response.status(404).json({ error: 'Diagnostic not found' })
+      return
+    }
+    const analysis = await db.aIAnalysis.findUnique({ where: { diagnosticId: diagnostic.id } })
+    if (!analysis) {
+      response.status(404).json({ error: 'AI analysis not found' })
+      return
+    }
+    response.json({ analysis: aiAnalysisView(analysis) })
   }))
 
   app.get('/api/tickets', authMiddleware, asyncHandler(async (request, response) => {
