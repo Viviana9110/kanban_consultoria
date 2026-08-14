@@ -3,7 +3,7 @@ import request from 'supertest'
 import { describe, expect, it, vi } from 'vitest'
 import type { PrismaClient, Role } from '@prisma/client'
 import { createApp } from './app.js'
-import { companyCreateSchema, companyUpdateSchema, loginSchema, ticketCreateSchema, ticketUpdateSchema } from './validation.js'
+import { companyCreateSchema, companyUpdateSchema, diagnosticCreateSchema, diagnosticUpdateSchema, loginSchema, swotItemCreateSchema, swotItemUpdateSchema, ticketCreateSchema, ticketUpdateSchema } from './validation.js'
 
 const admin = { id: 'cmadmin000000000000000001', email: 'admin@test.local', name: 'Admin Test', role: 'SUPERUSER' as Role }
 const member = { id: 'cmmember00000000000000001', email: 'member@test.local', name: 'Member Test', role: 'USER' as Role }
@@ -15,6 +15,12 @@ const company = {
   id: 'cmcompany00000000000000001', name: 'Acme Consultores', identification: '900123456-7', industry: 'Servicios', description: 'Empresa de consultoría estratégica',
   consultantId: member.id, createdAt: new Date('2026-01-01'), updatedAt: new Date('2026-01-02'), consultant: member,
 }
+const diagnostic = {
+  id: 'cmdiagnostic000000000000001', companyId: company.id, title: 'Diagnóstico inicial', description: 'Revisión general de la operación', status: 'DRAFT' as const, createdById: member.id,
+  createdAt: new Date('2026-01-03'), updatedAt: new Date('2026-01-03'), company: { id: company.id, name: company.name, consultantId: member.id }, createdBy: member,
+  swotAnalysis: { id: 'cmswot000000000000000001', diagnosticId: 'cmdiagnostic000000000000001', createdAt: new Date('2026-01-03'), updatedAt: new Date('2026-01-03'), items: [] },
+}
+const swotItem = { id: 'cmswotitem0000000000000001', swotId: diagnostic.swotAnalysis.id, type: 'STRENGTH' as const, description: 'Equipo comprometido', priority: 'HIGH' as const, impact: 'HIGH' as const, createdAt: new Date('2026-01-04') }
 
 function makeDb(role: Role = 'SUPERUSER', ticketOwnerId = member.id, ticketAssigneeId: string | null = null, companyConsultantId: string | null = member.id) {
   const currentUser = role === 'SUPERUSER' ? admin : member
@@ -47,6 +53,19 @@ function makeDb(role: Role = 'SUPERUSER', ticketOwnerId = member.id, ticketAssig
       update: vi.fn(async () => ({ ...company, name: 'Acme Actualizada', consultantId: companyConsultantId })),
       delete: vi.fn(),
     },
+    qualityDiagnostic: {
+      create: vi.fn(async () => ({ ...diagnostic, company: { ...diagnostic.company, consultantId: companyConsultantId }, swotAnalysis: { ...diagnostic.swotAnalysis, items: [] } })),
+      findUnique: vi.fn(async () => ({ ...diagnostic, company: { ...diagnostic.company, consultantId: companyConsultantId }, swotAnalysis: { ...diagnostic.swotAnalysis, items: [] } })),
+      findMany: vi.fn(async () => [{ ...diagnostic, company: { ...diagnostic.company, consultantId: companyConsultantId }, swotAnalysis: { ...diagnostic.swotAnalysis, items: [] } }]),
+      update: vi.fn(async () => ({ ...diagnostic, title: 'Diagnóstico actualizado', company: { ...diagnostic.company, consultantId: companyConsultantId }, swotAnalysis: { ...diagnostic.swotAnalysis, items: [] } })),
+      delete: vi.fn(),
+    },
+    sWOTItem: {
+      create: vi.fn(async () => ({ ...swotItem, swot: { diagnostic: { companyId: company.id, company: { consultantId: companyConsultantId } } } })),
+      findUnique: vi.fn(async () => ({ ...swotItem, swot: { diagnostic: { companyId: company.id, company: { consultantId: companyConsultantId } } } })),
+      update: vi.fn(async () => ({ ...swotItem, description: 'Factor actualizado', swot: { diagnostic: { companyId: company.id, company: { consultantId: companyConsultantId } } } })),
+      delete: vi.fn(),
+    },
   }
   return db as unknown as PrismaClient
 }
@@ -58,6 +77,10 @@ describe('validation schemas', () => {
     expect(ticketUpdateSchema.safeParse({}).success).toBe(false)
     expect(companyCreateSchema.safeParse({ name: 'A', identification: '', industry: 'x', description: '' }).success).toBe(false)
     expect(companyUpdateSchema.safeParse({}).success).toBe(false)
+    expect(diagnosticCreateSchema.safeParse({ title: 'x', description: '' }).success).toBe(false)
+    expect(diagnosticUpdateSchema.safeParse({}).success).toBe(false)
+    expect(swotItemCreateSchema.safeParse({ type: 'UNKNOWN', description: '', priority: 'HIGH', impact: 'HIGH' }).success).toBe(false)
+    expect(swotItemUpdateSchema.safeParse({}).success).toBe(false)
   })
 })
 
@@ -95,8 +118,13 @@ describe('authentication and authorization API', () => {
       request(app).get('/api/tickets'),
       request(app).get('/api/dashboard'),
       request(app).get('/api/companies'),
+      request(app).get(`/api/companies/${company.id}/diagnostics`),
+      request(app).get(`/api/diagnostics/${diagnostic.id}`),
+      request(app).post(`/api/diagnostics/${diagnostic.id}/swot/items`),
+      request(app).patch(`/api/swot/items/${swotItem.id}`),
+      request(app).delete(`/api/swot/items/${swotItem.id}`),
     ])
-    expect(responses.map((response) => response.status)).toEqual([401, 401, 401, 401, 401])
+    expect(responses.map((response) => response.status)).toEqual([401, 401, 401, 401, 401, 401, 401, 401, 401, 401])
   })
 
   it('invalidates the session and cookie on logout', async () => {
@@ -214,5 +242,55 @@ describe('companies API', () => {
     expect((await agent.get(`/api/companies/${company.id}`)).status).toBe(200)
     expect((await agent.patch(`/api/companies/${company.id}`).send({ industry: 'Tecnología' })).status).toBe(200)
     expect((await agent.delete(`/api/companies/${company.id}`)).status).toBe(204)
+  })
+})
+
+describe('diagnostics and SWOT API', () => {
+  it('supports diagnostic CRUD for a superuser', async () => {
+    const agent = request.agent(createApp(makeDb()))
+    await agent.post('/api/auth/login').send({ email: admin.email, password: 'Password123!' })
+
+    const created = await agent.post(`/api/companies/${company.id}/diagnostics`).send({ title: diagnostic.title, description: diagnostic.description })
+    expect(created.status).toBe(201)
+    expect(created.body.diagnostic.swotAnalysis).toBeTruthy()
+    expect((await agent.get(`/api/companies/${company.id}/diagnostics`)).status).toBe(200)
+    expect((await agent.get(`/api/diagnostics/${diagnostic.id}`)).status).toBe(200)
+    const updated = await agent.patch(`/api/diagnostics/${diagnostic.id}`).send({ status: 'COMPLETED' })
+    expect(updated.status).toBe(200)
+    expect((await agent.delete(`/api/diagnostics/${diagnostic.id}`)).status).toBe(204)
+  })
+
+  it('supports adding, editing and deleting SWOT items', async () => {
+    const agent = request.agent(createApp(makeDb()))
+    await agent.post('/api/auth/login').send({ email: admin.email, password: 'Password123!' })
+
+    const created = await agent.post(`/api/diagnostics/${diagnostic.id}/swot/items`).send({ type: 'STRENGTH', description: swotItem.description, priority: 'HIGH', impact: 'HIGH' })
+    expect(created.status).toBe(201)
+    expect(created.body.item.type).toBe('STRENGTH')
+    const updated = await agent.patch(`/api/swot/items/${swotItem.id}`).send({ type: 'OPPORTUNITY', priority: 'MEDIUM' })
+    expect(updated.status).toBe(200)
+    expect((await agent.delete(`/api/swot/items/${swotItem.id}`)).status).toBe(204)
+  })
+
+  it('allows a user to manage diagnostics in an assigned company', async () => {
+    const agent = request.agent(createApp(makeDb('USER')))
+    await agent.post('/api/auth/login').send({ email: member.email, password: 'Password123!' })
+    const created = await agent.post(`/api/companies/${company.id}/diagnostics`).send({ title: diagnostic.title, description: diagnostic.description })
+    expect(created.status).toBe(201)
+    expect((await agent.patch(`/api/diagnostics/${diagnostic.id}`).send({ title: 'Actualizado' })).status).toBe(200)
+    expect((await agent.post(`/api/diagnostics/${diagnostic.id}/swot/items`).send({ type: 'WEAKNESS', description: 'Proceso manual', priority: 'MEDIUM', impact: 'LOW' })).status).toBe(201)
+  })
+
+  it('blocks a user from another company using diagnostic and SWOT IDs', async () => {
+    const agent = request.agent(createApp(makeDb('USER', member.id, null, admin.id)))
+    await agent.post('/api/auth/login').send({ email: member.email, password: 'Password123!' })
+    expect((await agent.get(`/api/companies/${company.id}/diagnostics`)).status).toBe(404)
+    expect((await agent.post(`/api/companies/${company.id}/diagnostics`).send({ title: diagnostic.title, description: diagnostic.description })).status).toBe(404)
+    expect((await agent.get(`/api/diagnostics/${diagnostic.id}`)).status).toBe(404)
+    expect((await agent.patch(`/api/diagnostics/${diagnostic.id}`).send({ title: 'Intrusión' })).status).toBe(404)
+    expect((await agent.delete(`/api/diagnostics/${diagnostic.id}`)).status).toBe(404)
+    expect((await agent.post(`/api/diagnostics/${diagnostic.id}/swot/items`).send({ type: 'THREAT', description: 'Intrusión', priority: 'LOW', impact: 'LOW' })).status).toBe(404)
+    expect((await agent.patch(`/api/swot/items/${swotItem.id}`).send({ description: 'Intrusión' })).status).toBe(404)
+    expect((await agent.delete(`/api/swot/items/${swotItem.id}`)).status).toBe(404)
   })
 })

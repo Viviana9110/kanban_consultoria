@@ -50,6 +50,9 @@ El proxy de Vite envía `/api` a `http://localhost:4000`.
 - `PATCH /api/tickets/:id`, `DELETE /api/tickets/:id`
 - `GET /api/companies`, `POST /api/companies`, `GET /api/companies/:id`
 - `PATCH /api/companies/:id`, `DELETE /api/companies/:id`
+- `GET /api/companies/:companyId/diagnostics`, `POST /api/companies/:companyId/diagnostics`
+- `GET /api/diagnostics/:id`, `PATCH /api/diagnostics/:id`, `DELETE /api/diagnostics/:id`
+- `POST /api/diagnostics/:id/swot/items`, `PATCH /api/swot/items/:id`, `DELETE /api/swot/items/:id`
 - `GET /api/dashboard`
 
 Las sesiones usan cookies `HttpOnly` persistentes y el backend aplica autorización por rol, validación Zod, CORS restringido y rate limiting al login.

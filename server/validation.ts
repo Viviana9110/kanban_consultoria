@@ -51,3 +51,31 @@ export const companyUpdateSchema = companyCreateSchema.partial().refine(
 export const companyQuerySchema = z.object({
   search: z.string().trim().max(120).optional(),
 })
+
+export const diagnosticStatusSchema = z.enum(['DRAFT', 'IN_PROGRESS', 'COMPLETED'])
+export const swotTypeSchema = z.enum(['STRENGTH', 'WEAKNESS', 'OPPORTUNITY', 'THREAT'])
+export const priorityLevelSchema = z.enum(['LOW', 'MEDIUM', 'HIGH'])
+export const impactSchema = z.enum(['LOW', 'MEDIUM', 'HIGH'])
+
+export const diagnosticCreateSchema = z.object({
+  title: z.string().trim().min(3).max(120),
+  description: z.string().trim().min(3).max(5000),
+  status: diagnosticStatusSchema.optional(),
+})
+
+export const diagnosticUpdateSchema = diagnosticCreateSchema.partial().refine(
+  (value) => Object.keys(value).length > 0,
+  'At least one field is required',
+)
+
+export const swotItemCreateSchema = z.object({
+  type: swotTypeSchema,
+  description: z.string().trim().min(3).max(2000),
+  priority: priorityLevelSchema,
+  impact: impactSchema,
+})
+
+export const swotItemUpdateSchema = swotItemCreateSchema.partial().refine(
+  (value) => Object.keys(value).length > 0,
+  'At least one field is required',
+)

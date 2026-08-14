@@ -8,7 +8,7 @@ import { Prisma, PrismaClient, Role, TicketPriority, TicketStatus } from '@prism
 import { env } from './env.js'
 import { prisma } from './prisma.js'
 import { authenticate, authorize, clearSessionCookie, createSession, publicUser } from './auth.js'
-import { companyCreateSchema, companyQuerySchema, companyUpdateSchema, loginSchema, ticketCreateSchema, ticketQuerySchema, ticketUpdateSchema, userCreateSchema } from './validation.js'
+import { companyCreateSchema, companyQuerySchema, companyUpdateSchema, diagnosticCreateSchema, diagnosticUpdateSchema, loginSchema, swotItemCreateSchema, swotItemUpdateSchema, ticketCreateSchema, ticketQuerySchema, ticketUpdateSchema, userCreateSchema } from './validation.js'
 
 const asyncHandler = (handler: RequestHandler): RequestHandler => (request, response, next) => Promise.resolve(handler(request, response, next)).catch(next)
 
@@ -16,6 +16,10 @@ const userInclude = { createdBy: { select: { id: true, name: true, email: true }
 const ticketView = (ticket: Prisma.TicketGetPayload<{ include: typeof userInclude }>) => ticket
 const companyInclude = { consultant: { select: { id: true, name: true, email: true, role: true } } } as const
 const companyView = (company: Prisma.CompanyGetPayload<{ include: typeof companyInclude }>) => company
+const diagnosticInclude = { company: { select: { id: true, name: true, consultantId: true } }, createdBy: { select: { id: true, name: true, email: true } }, swotAnalysis: { include: { items: { orderBy: { createdAt: 'asc' } } } } } as const
+const diagnosticView = (diagnostic: Prisma.QualityDiagnosticGetPayload<{ include: typeof diagnosticInclude }>) => diagnostic
+const swotItemAccessInclude = { swot: { include: { diagnostic: { select: { companyId: true, company: { select: { consultantId: true } } } } } } } as const
+const swotItemView = (item: Prisma.SWOTItemGetPayload<{ include: typeof swotItemAccessInclude }>) => ({ id: item.id, swotId: item.swotId, type: item.type, description: item.description, priority: item.priority, impact: item.impact, createdAt: item.createdAt })
 
 const scopeForUser = (request: Request): Prisma.TicketWhereInput => request.user?.role === Role.SUPERUSER ? {} : { OR: [{ createdById: request.user?.id }, { assignedToId: request.user?.id }] }
 
@@ -162,6 +166,112 @@ export const createApp = (db: PrismaClient = prisma) => {
       return
     }
     await db.company.delete({ where: { id: existing.id } })
+    response.status(204).send()
+  }))
+
+  app.get('/api/companies/:companyId/diagnostics', authMiddleware, asyncHandler(async (request, response) => {
+    const company = await db.company.findUnique({ where: { id: String(request.params.companyId) }, select: { id: true, consultantId: true } })
+    if (!company || !canAccessCompany(request, company)) {
+      response.status(404).json({ error: 'Company not found' })
+      return
+    }
+    const diagnostics = await db.qualityDiagnostic.findMany({ where: { companyId: company.id }, include: diagnosticInclude, orderBy: { updatedAt: 'desc' } })
+    response.json({ diagnostics: diagnostics.map(diagnosticView) })
+  }))
+
+  app.post('/api/companies/:companyId/diagnostics', authMiddleware, asyncHandler(async (request, response) => {
+    const parsed = diagnosticCreateSchema.safeParse(request.body)
+    if (!parsed.success) {
+      response.status(400).json({ error: 'Invalid diagnostic data', details: parsed.error.issues })
+      return
+    }
+    const company = await db.company.findUnique({ where: { id: String(request.params.companyId) }, select: { id: true, consultantId: true } })
+    if (!company || !canAccessCompany(request, company)) {
+      response.status(404).json({ error: 'Company not found' })
+      return
+    }
+    const diagnostic = await db.qualityDiagnostic.create({
+      data: { companyId: company.id, title: parsed.data.title, description: parsed.data.description, status: parsed.data.status, createdById: request.user!.id, swotAnalysis: { create: {} } },
+      include: diagnosticInclude,
+    })
+    response.status(201).json({ diagnostic: diagnosticView(diagnostic) })
+  }))
+
+  app.get('/api/diagnostics/:id', authMiddleware, asyncHandler(async (request, response) => {
+    const diagnostic = await db.qualityDiagnostic.findUnique({ where: { id: String(request.params.id) }, include: diagnosticInclude })
+    if (!diagnostic || !canAccessCompany(request, diagnostic.company)) {
+      response.status(404).json({ error: 'Diagnostic not found' })
+      return
+    }
+    response.json({ diagnostic: diagnosticView(diagnostic) })
+  }))
+
+  app.patch('/api/diagnostics/:id', authMiddleware, asyncHandler(async (request, response) => {
+    const parsed = diagnosticUpdateSchema.safeParse(request.body)
+    if (!parsed.success) {
+      response.status(400).json({ error: 'Invalid diagnostic data', details: parsed.error.issues })
+      return
+    }
+    const existing = await db.qualityDiagnostic.findUnique({ where: { id: String(request.params.id) }, include: { company: { select: { id: true, consultantId: true } } } })
+    if (!existing || !canAccessCompany(request, existing.company)) {
+      response.status(404).json({ error: 'Diagnostic not found' })
+      return
+    }
+    const diagnostic = await db.qualityDiagnostic.update({ where: { id: existing.id }, data: parsed.data, include: diagnosticInclude })
+    response.json({ diagnostic: diagnosticView(diagnostic) })
+  }))
+
+  app.delete('/api/diagnostics/:id', authMiddleware, asyncHandler(async (request, response) => {
+    const existing = await db.qualityDiagnostic.findUnique({ where: { id: String(request.params.id) }, include: { company: { select: { id: true, consultantId: true } } } })
+    if (!existing || !canAccessCompany(request, existing.company)) {
+      response.status(404).json({ error: 'Diagnostic not found' })
+      return
+    }
+    await db.qualityDiagnostic.delete({ where: { id: existing.id } })
+    response.status(204).send()
+  }))
+
+  app.post('/api/diagnostics/:id/swot/items', authMiddleware, asyncHandler(async (request, response) => {
+    const parsed = swotItemCreateSchema.safeParse(request.body)
+    if (!parsed.success) {
+      response.status(400).json({ error: 'Invalid SWOT item data', details: parsed.error.issues })
+      return
+    }
+    const diagnostic = await db.qualityDiagnostic.findUnique({ where: { id: String(request.params.id) }, include: { company: { select: { consultantId: true } }, swotAnalysis: { select: { id: true } } } })
+    if (!diagnostic || !canAccessCompany(request, diagnostic.company)) {
+      response.status(404).json({ error: 'Diagnostic not found' })
+      return
+    }
+    if (!diagnostic.swotAnalysis) {
+      response.status(409).json({ error: 'Diagnostic SWOT analysis is unavailable' })
+      return
+    }
+    const item = await db.sWOTItem.create({ data: { ...parsed.data, swotId: diagnostic.swotAnalysis.id }, include: swotItemAccessInclude })
+    response.status(201).json({ item: swotItemView(item) })
+  }))
+
+  app.patch('/api/swot/items/:id', authMiddleware, asyncHandler(async (request, response) => {
+    const parsed = swotItemUpdateSchema.safeParse(request.body)
+    if (!parsed.success) {
+      response.status(400).json({ error: 'Invalid SWOT item data', details: parsed.error.issues })
+      return
+    }
+    const existing = await db.sWOTItem.findUnique({ where: { id: String(request.params.id) }, include: swotItemAccessInclude })
+    if (!existing || !canAccessCompany(request, existing.swot.diagnostic.company)) {
+      response.status(404).json({ error: 'SWOT item not found' })
+      return
+    }
+    const item = await db.sWOTItem.update({ where: { id: existing.id }, data: parsed.data, include: swotItemAccessInclude })
+    response.json({ item: swotItemView(item) })
+  }))
+
+  app.delete('/api/swot/items/:id', authMiddleware, asyncHandler(async (request, response) => {
+    const existing = await db.sWOTItem.findUnique({ where: { id: String(request.params.id) }, include: swotItemAccessInclude })
+    if (!existing || !canAccessCompany(request, existing.swot.diagnostic.company)) {
+      response.status(404).json({ error: 'SWOT item not found' })
+      return
+    }
+    await db.sWOTItem.delete({ where: { id: existing.id } })
     response.status(204).send()
   }))
 

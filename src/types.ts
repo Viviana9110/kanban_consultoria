@@ -16,6 +16,34 @@ export type Company = {
   updatedAt: string
 }
 
+export type DiagnosticStatus = 'DRAFT' | 'IN_PROGRESS' | 'COMPLETED'
+export type SWOTType = 'STRENGTH' | 'WEAKNESS' | 'OPPORTUNITY' | 'THREAT'
+export type Level = 'LOW' | 'MEDIUM' | 'HIGH'
+
+export type SWOTItem = {
+  id: string
+  swotId: string
+  type: SWOTType
+  description: string
+  priority: Level
+  impact: Level
+  createdAt: string
+}
+
+export type Diagnostic = {
+  id: string
+  companyId: string
+  title: string
+  description: string
+  status: DiagnosticStatus
+  createdById: string
+  createdAt: string
+  updatedAt: string
+  company: Pick<Company, 'id' | 'name' | 'consultantId'>
+  createdBy: User
+  swotAnalysis: { id: string; diagnosticId: string; createdAt: string; updatedAt: string; items: SWOTItem[] } | null
+}
+
 export type Ticket = {
   id: string
   title: string
