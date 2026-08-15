@@ -14,6 +14,8 @@ import { actionItemCreateSchema, actionItemUpdateSchema, actionPlanCreateSchema,
 
 const asyncHandler = (handler: RequestHandler): RequestHandler => (request, response, next) => Promise.resolve(handler(request, response, next)).catch(next)
 
+const DUMMY_PASSWORD_HASH = '$2b$12$UjBgyzK627Qyclju5Vdtne3rVrXxGDHxvGqnZahRh5D9geupYld9y'
+
 const userInclude = { createdBy: { select: { id: true, name: true, email: true } }, assignedTo: { select: { id: true, name: true, email: true } } } as const
 const ticketView = (ticket: Prisma.TicketGetPayload<{ include: typeof userInclude }>) => ticket
 const companyInclude = { consultant: { select: { id: true, name: true, email: true, role: true } } } as const
@@ -40,9 +42,19 @@ export const createApp = (db: PrismaClient = prisma, aiService: AIService = new 
   app.use(cors({ origin: env.FRONTEND_URL, credentials: true }))
   app.use(express.json({ limit: '1mb' }))
   app.use(cookieParser())
+  app.use((_request, response, next) => {
+    response.setHeader('X-Content-Type-Options', 'nosniff')
+    response.setHeader('X-Frame-Options', 'DENY')
+    response.setHeader('Referrer-Policy', 'no-referrer')
+    response.setHeader('X-Permitted-Cross-Domain-Policies', 'none')
+    response.setHeader('Cache-Control', 'no-store')
+    if (env.NODE_ENV === 'production') response.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+    next()
+  })
 
   const authMiddleware = authenticate(db)
   const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many login attempts' } })
+  const aiAnalysisLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 15, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many AI analysis requests' } })
 
   app.get('/api/health', (_request, response) => response.json({ status: 'ok' }))
 
@@ -53,7 +65,7 @@ export const createApp = (db: PrismaClient = prisma, aiService: AIService = new 
       return
     }
     const user = await db.user.findUnique({ where: { email: parsed.data.email } })
-    const valid = user ? await bcrypt.compare(parsed.data.password, user.passwordHash) : false
+    const valid = await bcrypt.compare(parsed.data.password, user?.passwordHash ?? DUMMY_PASSWORD_HASH)
     if (!user || !valid) {
       response.status(401).json({ error: 'Invalid email or password' })
       return
@@ -74,7 +86,7 @@ export const createApp = (db: PrismaClient = prisma, aiService: AIService = new 
   app.get('/api/auth/me', authMiddleware, (request, response) => response.json({ user: request.user }))
 
   app.get('/api/users', authMiddleware, asyncHandler(async (_request, response) => {
-    const users = await db.user.findMany({ select: { id: true, name: true, email: true, role: true }, orderBy: { name: 'asc' } })
+    const users = await db.user.findMany({ select: { id: true, name: true, role: true }, orderBy: { name: 'asc' } })
     response.json({ users })
   }))
 
@@ -283,7 +295,7 @@ export const createApp = (db: PrismaClient = prisma, aiService: AIService = new 
     response.status(204).send()
   }))
 
-  app.post('/api/diagnostics/:id/ai-analysis', authMiddleware, asyncHandler(async (request, response) => {
+  app.post('/api/diagnostics/:id/ai-analysis', authMiddleware, aiAnalysisLimiter, asyncHandler(async (request, response) => {
     const diagnostic = await db.qualityDiagnostic.findUnique({ where: { id: String(request.params.id) }, include: diagnosticInclude })
     if (!diagnostic || !canAccessCompany(request, diagnostic.company)) {
       response.status(404).json({ error: 'Diagnostic not found' })
@@ -586,11 +598,15 @@ export const createApp = (db: PrismaClient = prisma, aiService: AIService = new 
   app.use((_request, response) => response.status(404).json({ error: 'Not found' }))
   app.use((error: unknown, _request: Request, response: Response, next: NextFunction) => {
     void next
+    if (error instanceof SyntaxError) {
+      response.status(400).json({ error: 'Invalid JSON body' })
+      return
+    }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       response.status(409).json({ error: 'A resource with that value already exists' })
       return
     }
-    console.error(error)
+    console.error(error instanceof Error ? error.message : error)
     response.status(500).json({ error: 'Internal server error' })
   })
   return app

@@ -56,8 +56,13 @@ function makeDb(role: Role = 'SUPERUSER', ticketOwnerId = member.id, ticketAssig
   let storedRecommendations: typeof recommendation[] = existingRecommendations
   const db = {
     user: {
-      findUnique: vi.fn(async ({ where }: { where: { email?: string } }) => where.email ? { ...currentUser, passwordHash } : { id: member.id }),
-      findMany: vi.fn(async () => [admin, member]),
+      findUnique: vi.fn(async ({ where }: { where: { email?: string } }) => where.email ? (where.email === currentUser.email ? { ...currentUser, passwordHash } : null) : { id: member.id }),
+      findMany: vi.fn(async ({ select }: { select?: { id?: true; name?: true; email?: true; role?: true } }) => [admin, member].map((user) => ({
+        id: user.id,
+        name: user.name,
+        ...(select?.email ? { email: user.email } : {}),
+        ...(select?.role ? { role: user.role } : {}),
+      }))),
       create: vi.fn(),
     },
     session: {
@@ -166,6 +171,37 @@ describe('authentication and authorization API', () => {
     await agent.post('/api/auth/login').send({ email: member.email, password: 'Password123!' })
     const userCreate = await agent.post('/api/users').send({ name: 'New user', email: 'new@test.local', password: 'Password123!', role: 'USER' })
     expect(userCreate.status).toBe(403)
+  })
+
+  it('returns the same error for a login with an unknown email', async () => {
+    const agent = request.agent(createApp(makeDb('USER')))
+    const response = await agent.post('/api/auth/login').send({ email: 'nobody@test.local', password: 'Password123!' })
+    expect(response.status).toBe(401)
+    expect(response.body).toEqual({ error: 'Invalid email or password' })
+  })
+
+  it('does not expose emails in the user directory', async () => {
+    const agent = request.agent(createApp(makeDb('USER')))
+    await agent.post('/api/auth/login').send({ email: member.email, password: 'Password123!' })
+    const list = await agent.get('/api/users')
+    expect(list.status).toBe(200)
+    expect(list.body.users[0]).toMatchObject({ id: admin.id, name: admin.name, role: 'SUPERUSER' })
+    expect(list.body.users[0]).not.toHaveProperty('email')
+  })
+
+  it('sets basic security headers and disables response caching', async () => {
+    const response = await request(createApp(makeDb())).get('/api/health')
+    expect(response.status).toBe(200)
+    expect(response.headers['x-content-type-options']).toBe('nosniff')
+    expect(response.headers['x-frame-options']).toBe('DENY')
+    expect(response.headers['referrer-policy']).toBe('no-referrer')
+    expect(response.headers['cache-control']).toContain('no-store')
+  })
+
+  it('returns 400 for a malformed JSON body instead of 500', async () => {
+    const response = await request(createApp(makeDb())).post('/api/auth/login').set('Content-Type', 'application/json').send('{"email": broken')
+    expect(response.status).toBe(400)
+    expect(response.body).toEqual({ error: 'Invalid JSON body' })
   })
 
   it('rejects protected resources without a session', async () => {
@@ -465,6 +501,18 @@ describe('AI analysis service and API', () => {
     const invalid = await agent.post(`/api/diagnostics/${diagnostic.id}/ai-analysis`)
     expect(invalid.status).toBe(502)
     expect(invalid.body).toEqual({ error: 'AI returned an invalid analysis' })
+  })
+
+  it('rate limits AI analysis generation to prevent cost abuse', async () => {
+    const aiService = { analyze: vi.fn(async () => aiResult) } as unknown as AIService
+    const agent = request.agent(createApp(makeDb('SUPERUSER'), aiService))
+    await agent.post('/api/auth/login').send({ email: admin.email, password: 'Password123!' })
+    for (let i = 0; i < 15; i += 1) {
+      expect((await agent.post(`/api/diagnostics/${diagnostic.id}/ai-analysis`)).status).toBe(200)
+    }
+    const blocked = await agent.post(`/api/diagnostics/${diagnostic.id}/ai-analysis`)
+    expect(blocked.status).toBe(429)
+    expect(aiService.analyze).toHaveBeenCalledTimes(15)
   })
 
   it('blocks AI analysis access through a diagnostic ID from another company', async () => {
