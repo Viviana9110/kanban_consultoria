@@ -59,6 +59,6 @@ El proxy de Vite envía `/api` a `http://localhost:4000`.
 - `GET /api/diagnostics/:id/action-plans`, `POST /api/diagnostics/:id/action-plans`
 - `GET /api/action-plans/:id`, `PATCH /api/action-plans/:id`
 - `POST /api/action-plans/:id/items`, `PATCH /api/action-items/:id`, `DELETE /api/action-items/:id`
-- `GET /api/dashboard`
+- `GET /api/dashboard`: métricas de gestión de calidad (empresas, diagnósticos, recomendaciones, planes y acciones) filtradas por rol y consultor.
 
 Las sesiones usan cookies `HttpOnly` persistentes y el backend aplica autorización por rol, validación Zod, CORS restringido y rate limiting al login. `OPENAI_API_KEY` solo se configura en el backend; sin ella el endpoint IA responde de forma controlada.

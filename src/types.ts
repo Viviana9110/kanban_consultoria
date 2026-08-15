@@ -119,7 +119,27 @@ export type Ticket = {
   assignedTo: User | null
 }
 
+export type DashboardSummary = {
+  totalCompanies: number
+  totalDiagnostics: number
+  draftDiagnostics: number
+  inProgressDiagnostics: number
+  completedDiagnostics: number
+  pendingRecommendations: number
+  activeActionPlans: number
+  pendingActionItems: number
+  overdueActionItems: number
+}
+
+export type DashboardRecentDiagnostic = Pick<Diagnostic, 'id' | 'title' | 'status' | 'updatedAt'> & { company: Pick<Company, 'id' | 'name'> }
+export type DashboardPriorityRecommendation = Pick<Recommendation, 'id' | 'title' | 'priority' | 'status'> & { diagnostic: { id: string; title: string; company: { id: string; name: string } } }
+export type DashboardUpcomingAction = Pick<ActionItem, 'id' | 'title' | 'status' | 'dueDate'> & { actionPlan: { id: string; title: string; diagnostic: { id: string; title: string; company: { id: string; name: string } } }; responsible: Pick<User, 'id' | 'name'> | null }
+export type DashboardRecentCompany = Pick<Company, 'id' | 'name' | 'industry' | 'updatedAt'> & { consultant: Pick<User, 'id' | 'name'> | null }
+
 export type DashboardData = {
-  summary: { total: number; open: number; inProgress: number; closed: number; priority: number }
-  recentActivity: Ticket[]
+  summary: DashboardSummary
+  recentDiagnostics: DashboardRecentDiagnostic[]
+  priorityRecommendations: DashboardPriorityRecommendation[]
+  upcomingActions: DashboardUpcomingAction[]
+  recentCompanies: DashboardRecentCompany[]
 }

@@ -4,11 +4,12 @@ import cors from 'cors'
 import cookieParser from 'cookie-parser'
 import rateLimit from 'express-rate-limit'
 import bcrypt from 'bcryptjs'
-import { Prisma, PrismaClient, Role, TicketPriority, TicketStatus } from '@prisma/client'
+import { Prisma, PrismaClient, Role } from '@prisma/client'
 import { env } from './env.js'
 import { prisma } from './prisma.js'
 import { authenticate, authorize, clearSessionCookie, createSession, publicUser } from './auth.js'
 import { AIService, AIServiceError } from './ai-service.js'
+import { getDashboardData } from './dashboard-service.js'
 import { actionItemCreateSchema, actionItemUpdateSchema, actionPlanCreateSchema, actionPlanUpdateSchema, aiAnalysisSchema, companyCreateSchema, companyQuerySchema, companyUpdateSchema, diagnosticCreateSchema, diagnosticUpdateSchema, loginSchema, recommendationUpdateSchema, swotItemCreateSchema, swotItemUpdateSchema, ticketCreateSchema, ticketQuerySchema, ticketUpdateSchema, userCreateSchema } from './validation.js'
 
 const asyncHandler = (handler: RequestHandler): RequestHandler => (request, response, next) => Promise.resolve(handler(request, response, next)).catch(next)
@@ -578,16 +579,8 @@ export const createApp = (db: PrismaClient = prisma, aiService: AIService = new 
   }))
 
   app.get('/api/dashboard', authMiddleware, asyncHandler(async (request, response) => {
-    const where = scopeForUser(request)
-    const [total, open, inProgress, closed, priority, recentActivity] = await Promise.all([
-      db.ticket.count({ where }),
-      db.ticket.count({ where: { AND: [where, { status: TicketStatus.OPEN }] } }),
-      db.ticket.count({ where: { AND: [where, { status: TicketStatus.IN_PROGRESS }] } }),
-      db.ticket.count({ where: { AND: [where, { status: TicketStatus.CLOSED }] } }),
-      db.ticket.count({ where: { AND: [where, { priority: { in: [TicketPriority.HIGH, TicketPriority.URGENT] } }] } }),
-      db.ticket.findMany({ where, include: userInclude, orderBy: { updatedAt: 'desc' }, take: 5 }),
-    ])
-    response.json({ summary: { total, open, inProgress, closed, priority }, recentActivity: recentActivity.map(ticketView) })
+    const dashboard = await getDashboardData(db, request)
+    response.json(dashboard)
   }))
 
   app.use((_request, response) => response.status(404).json({ error: 'Not found' }))

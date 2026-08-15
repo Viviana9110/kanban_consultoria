@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { PrismaClient, Role } from '@prisma/client'
 import { createApp } from './app.js'
 import { AIService, AIServiceError } from './ai-service.js'
+import { dashboardScopesFor } from './dashboard-service.js'
 import { aiAnalysisSchema, companyCreateSchema, companyUpdateSchema, diagnosticCreateSchema, diagnosticUpdateSchema, loginSchema, swotItemCreateSchema, swotItemUpdateSchema, ticketCreateSchema, ticketUpdateSchema } from './validation.js'
 
 const admin = { id: 'cmadmin000000000000000001', email: 'admin@test.local', name: 'Admin Test', role: 'SUPERUSER' as Role }
@@ -79,6 +80,7 @@ function makeDb(role: Role = 'SUPERUSER', ticketOwnerId = member.id, ticketAssig
       findMany: vi.fn(async () => [{ ...company, consultantId: companyConsultantId }]),
       update: vi.fn(async () => ({ ...company, name: 'Acme Actualizada', consultantId: companyConsultantId })),
       delete: vi.fn(),
+      count: vi.fn(async () => 1),
     },
     qualityDiagnostic: {
       create: vi.fn(async () => ({ ...diagnostic, company: { ...diagnostic.company, consultantId: companyConsultantId }, swotAnalysis: { ...diagnostic.swotAnalysis, items: [] } })),
@@ -86,6 +88,7 @@ function makeDb(role: Role = 'SUPERUSER', ticketOwnerId = member.id, ticketAssig
       findMany: vi.fn(async () => [{ ...diagnostic, company: { ...diagnostic.company, consultantId: companyConsultantId }, swotAnalysis: { ...diagnostic.swotAnalysis, items: [] } }]),
       update: vi.fn(async () => ({ ...diagnostic, title: 'Diagnóstico actualizado', company: { ...diagnostic.company, consultantId: companyConsultantId }, swotAnalysis: { ...diagnostic.swotAnalysis, items: [] } })),
       delete: vi.fn(),
+      count: vi.fn(async () => 2),
     },
     sWOTItem: {
       create: vi.fn(async () => ({ ...swotItem, swot: { diagnostic: { companyId: company.id, company: { consultantId: companyConsultantId } } } })),
@@ -102,18 +105,22 @@ function makeDb(role: Role = 'SUPERUSER', ticketOwnerId = member.id, ticketAssig
       findUnique: vi.fn(async () => ({ ...recommendation, diagnostic: { company: { consultantId: companyConsultantId } } })),
       create: vi.fn(async ({ data }: { data: { title: string } }) => { const created = { ...recommendation, title: data.title }; storedRecommendations = [created, ...storedRecommendations]; return created }),
       update: vi.fn(async () => ({ ...recommendation, status: 'ACCEPTED', diagnostic: { company: { consultantId: companyConsultantId } } })),
+      count: vi.fn(async () => 1),
     },
     actionPlan: {
       findMany: vi.fn(async () => [{ ...actionPlan, createdBy: member, items: [] }]),
       findUnique: vi.fn(async () => ({ ...actionPlan, createdBy: member, items: [], diagnostic: { company: { consultantId: companyConsultantId } } })),
       create: vi.fn(async () => ({ ...actionPlan, createdBy: member, items: [] })),
       update: vi.fn(async () => ({ ...actionPlan, status: 'COMPLETED', createdBy: member, items: [] })),
+      count: vi.fn(async () => 1),
     },
     actionItem: {
+      findMany: vi.fn(async () => [{ ...actionItem, actionPlan: { id: actionPlan.id, title: actionPlan.title, diagnostic: { id: diagnostic.id, title: diagnostic.title, company: { id: company.id, name: company.name } } }, responsible: member }]),
       findUnique: vi.fn(async () => ({ ...actionItem, actionPlan: { diagnosticId: actionPlan.id, diagnostic: { company: { consultantId: companyConsultantId } } }, recommendation: { id: recommendation.id, title: recommendation.title, priority: recommendation.priority, status: recommendation.status }, responsible: member })),
       create: vi.fn(async () => ({ ...actionItem, recommendation: { id: recommendation.id, title: recommendation.title, priority: recommendation.priority, status: recommendation.status }, responsible: member })),
       update: vi.fn(async () => ({ ...actionItem, status: 'IN_PROGRESS', recommendation: { id: recommendation.id, title: recommendation.title, priority: recommendation.priority, status: recommendation.status }, responsible: member })),
       delete: vi.fn(),
+      count: vi.fn(async () => 1),
     },
   }
   return db as unknown as PrismaClient
@@ -251,17 +258,77 @@ describe('tickets API', () => {
     expect(deleted.status).toBe(204)
   })
 
-  it('returns the scoped ticket list and dashboard summary', async () => {
+  it('returns the scoped ticket list', async () => {
     const agent = request.agent(createApp(makeDb('USER')))
     await agent.post('/api/auth/login').send({ email: member.email, password: 'Password123!' })
     const list = await agent.get('/api/tickets?status=OPEN')
     expect(list.status).toBe(200)
     expect(list.body.tickets).toHaveLength(1)
+  })
+})
 
+describe('dashboard API', () => {
+  it('returns quality metrics and lists for an authenticated superuser', async () => {
+    const agent = request.agent(createApp(makeDb('SUPERUSER', member.id, null, member.id, [recommendation])))
+    await agent.post('/api/auth/login').send({ email: admin.email, password: 'Password123!' })
     const dashboard = await agent.get('/api/dashboard')
     expect(dashboard.status).toBe(200)
-    expect(dashboard.body.summary).toMatchObject({ total: 1, open: 1, inProgress: 1, closed: 1, priority: 1 })
-    expect(dashboard.body.recentActivity).toHaveLength(1)
+    expect(dashboard.body.summary).toEqual({
+      totalCompanies: 1,
+      totalDiagnostics: 2,
+      draftDiagnostics: 2,
+      inProgressDiagnostics: 2,
+      completedDiagnostics: 2,
+      pendingRecommendations: 1,
+      activeActionPlans: 1,
+      pendingActionItems: 1,
+      overdueActionItems: 1,
+    })
+    expect(dashboard.body.recentDiagnostics).toHaveLength(1)
+    expect(dashboard.body.priorityRecommendations).toHaveLength(1)
+    expect(dashboard.body.upcomingActions).toHaveLength(1)
+    expect(dashboard.body.recentCompanies).toHaveLength(1)
+  })
+
+  it('returns the same metrics for an authenticated user', async () => {
+    const agent = request.agent(createApp(makeDb('USER', member.id, null, member.id, [recommendation])))
+    await agent.post('/api/auth/login').send({ email: member.email, password: 'Password123!' })
+    const dashboard = await agent.get('/api/dashboard')
+    expect(dashboard.status).toBe(200)
+    expect(dashboard.body.summary.totalCompanies).toBe(1)
+    expect(dashboard.body.recentDiagnostics[0].company.name).toBe(company.name)
+    expect(dashboard.body.upcomingActions[0].responsible.name).toBe(member.name)
+  })
+
+  it('scopes dashboard metrics to the authenticated user', async () => {
+    const db = makeDb('USER')
+    const agent = request.agent(createApp(db))
+    await agent.post('/api/auth/login').send({ email: member.email, password: 'Password123!' })
+    await agent.get('/api/dashboard')
+    expect((db.company.count as unknown as { mock: { calls: Array<[{ where: unknown }]> } }).mock.calls[0][0]?.where).toEqual({ consultantId: member.id })
+    expect((db.qualityDiagnostic.count as unknown as { mock: { calls: Array<[{ where: unknown }]> } }).mock.calls[0][0]?.where).toEqual({ company: { consultantId: member.id } })
+    expect((db.recommendation.count as unknown as { mock: { calls: Array<[{ where: unknown }]> } }).mock.calls[0][0]?.where).toEqual({ AND: [{ diagnostic: { company: { consultantId: member.id } } }, { status: 'PENDING' }] })
+    expect((db.actionPlan.count as unknown as { mock: { calls: Array<[{ where: unknown }]> } }).mock.calls[0][0]?.where).toEqual({ AND: [{ diagnostic: { company: { consultantId: member.id } } }, { status: 'ACTIVE' }] })
+    expect((db.actionItem.count as unknown as { mock: { calls: Array<[{ where: unknown }]> } }).mock.calls[0][0]?.where).toEqual({ AND: [{ actionPlan: { diagnostic: { company: { consultantId: member.id } } } }, { status: { in: ['PENDING', 'IN_PROGRESS'] } }] })
+  })
+
+  it('gives superusers a global scope on the dashboard', async () => {
+    const db = makeDb()
+    const agent = request.agent(createApp(db))
+    await agent.post('/api/auth/login').send({ email: admin.email, password: 'Password123!' })
+    await agent.get('/api/dashboard')
+    expect((db.company.count as unknown as { mock: { calls: Array<[{ where: unknown }]> } }).mock.calls[0][0]?.where).toEqual({})
+  })
+
+  it('builds per-role scopes for dashboard queries', () => {
+    expect(dashboardScopesFor({ user: admin } as never)).toEqual({ company: {}, diagnostic: {}, recommendation: {}, actionPlan: {}, actionItem: {} })
+    expect(dashboardScopesFor({ user: member } as never)).toEqual({
+      company: { consultantId: member.id },
+      diagnostic: { company: { consultantId: member.id } },
+      recommendation: { diagnostic: { company: { consultantId: member.id } } },
+      actionPlan: { diagnostic: { company: { consultantId: member.id } } },
+      actionItem: { actionPlan: { diagnostic: { company: { consultantId: member.id } } } },
+    })
   })
 })
 
