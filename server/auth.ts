@@ -42,6 +42,7 @@ export const authenticate = (db: PrismaClient) => async (request: Request, respo
     })
     if (!session || session.expiresAt <= new Date()) {
       if (session) await db.session.delete({ where: { id: session.id } }).catch(() => undefined)
+      clearSessionCookie(response)
       response.status(401).json({ error: 'Authentication required' })
       return
     }
