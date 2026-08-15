@@ -316,7 +316,7 @@ function LoadingPage() { return <div className="loading-state"><span className="
 function PageError({ message }: { message: string }) { return <div className="page"><div className="error-state"><div>!</div><h2>Algo salió mal</h2><p>{message}</p></div></div> }
 function initials(name: string) { return name.split(' ').map((part) => part[0]).slice(0, 2).join('').toUpperCase() }
 function firstName(name: string) { return name.split(' ')[0] }
-function relativeDate(date: string) { const value = new Date(date); const days = Math.floor((Date.now() - value.getTime()) / 86400000); if (days === 0) return 'Hoy'; if (days === 1) return 'Ayer'; if (days < 7) return `Hace ${days} días`; return value.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) }
+function relativeDate(date: string) { const value = new Date(date); const elapsed = Date.now() - value.getTime(); const days = Math.floor(elapsed / 86400000); if (days === 0) return 'Hoy'; if (days === 1) return 'Ayer'; if (days > 1 && days < 7) return `Hace ${days} días`; if (days < 0) { const future = Math.round(-elapsed / 86400000); if (future <= 0) return 'Hoy'; if (future === 1) return 'Mañana'; if (future < 7) return `En ${future} días`; } return value.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) }
 
 function DiagnosticDetail({ diagnostic, onBack, onEdit, onDelete }: { diagnostic: Diagnostic; onBack: () => void; onEdit: () => void; onDelete: () => void }) {
   const [analysis, setAnalysis] = useState<AIAnalysis | null>(null)
