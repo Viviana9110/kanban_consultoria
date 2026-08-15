@@ -9,7 +9,7 @@ import { env } from './env.js'
 import { prisma } from './prisma.js'
 import { authenticate, authorize, clearSessionCookie, createSession, publicUser } from './auth.js'
 import { AIService, AIServiceError } from './ai-service.js'
-import { aiAnalysisSchema, companyCreateSchema, companyQuerySchema, companyUpdateSchema, diagnosticCreateSchema, diagnosticUpdateSchema, loginSchema, swotItemCreateSchema, swotItemUpdateSchema, ticketCreateSchema, ticketQuerySchema, ticketUpdateSchema, userCreateSchema } from './validation.js'
+import { actionItemCreateSchema, actionItemUpdateSchema, actionPlanCreateSchema, actionPlanUpdateSchema, aiAnalysisSchema, companyCreateSchema, companyQuerySchema, companyUpdateSchema, diagnosticCreateSchema, diagnosticUpdateSchema, loginSchema, recommendationUpdateSchema, swotItemCreateSchema, swotItemUpdateSchema, ticketCreateSchema, ticketQuerySchema, ticketUpdateSchema, userCreateSchema } from './validation.js'
 
 const asyncHandler = (handler: RequestHandler): RequestHandler => (request, response, next) => Promise.resolve(handler(request, response, next)).catch(next)
 
@@ -22,6 +22,11 @@ const diagnosticView = (diagnostic: Prisma.QualityDiagnosticGetPayload<{ include
 const swotItemAccessInclude = { swot: { include: { diagnostic: { select: { companyId: true, company: { select: { consultantId: true } } } } } } } as const
 const swotItemView = (item: Prisma.SWOTItemGetPayload<{ include: typeof swotItemAccessInclude }>) => ({ id: item.id, swotId: item.swotId, type: item.type, description: item.description, priority: item.priority, impact: item.impact, createdAt: item.createdAt })
 const aiAnalysisView = (analysis: { id: string; diagnosticId: string; executiveSummary: string; diagnosis: string; keyFindings: unknown; foStrategies: unknown; doStrategies: unknown; faStrategies: unknown; daStrategies: unknown; priorityRisks: unknown; priorityOpportunities: unknown; recommendations: unknown; createdAt: Date; updatedAt: Date }) => ({ id: analysis.id, diagnosticId: analysis.diagnosticId, ...aiAnalysisSchema.parse({ executiveSummary: analysis.executiveSummary, diagnosis: analysis.diagnosis, keyFindings: analysis.keyFindings, foStrategies: analysis.foStrategies, doStrategies: analysis.doStrategies, faStrategies: analysis.faStrategies, daStrategies: analysis.daStrategies, priorityRisks: analysis.priorityRisks, priorityOpportunities: analysis.priorityOpportunities, recommendations: analysis.recommendations }), createdAt: analysis.createdAt, updatedAt: analysis.updatedAt })
+const recommendationView = (recommendation: { id: string; diagnosticId: string; title: string; description: string; priority: string; expectedImpact: string; suggestedAction: string; status: string; createdAt: Date; updatedAt: Date }) => recommendation
+const actionItemInclude = { recommendation: { select: { id: true, title: true, priority: true, status: true } }, responsible: { select: { id: true, name: true, email: true } } } as const
+const actionItemView = (item: Prisma.ActionItemGetPayload<{ include: typeof actionItemInclude }>) => item
+const actionPlanInclude = { createdBy: { select: { id: true, name: true, email: true } }, items: { include: actionItemInclude, orderBy: { createdAt: 'asc' as const } } } as const
+const actionPlanView = (plan: Prisma.ActionPlanGetPayload<{ include: typeof actionPlanInclude }>) => plan
 
 const scopeForUser = (request: Request): Prisma.TicketWhereInput => request.user?.role === Role.SUPERUSER ? {} : { OR: [{ createdById: request.user?.id }, { assignedToId: request.user?.id }] }
 
@@ -326,6 +331,167 @@ export const createApp = (db: PrismaClient = prisma, aiService: AIService = new 
       return
     }
     response.json({ analysis: aiAnalysisView(analysis) })
+  }))
+
+  app.get('/api/diagnostics/:id/recommendations', authMiddleware, asyncHandler(async (request, response) => {
+    const diagnostic = await db.qualityDiagnostic.findUnique({ where: { id: String(request.params.id) }, include: { company: { select: { consultantId: true } } } })
+    if (!diagnostic || !canAccessCompany(request, diagnostic.company)) {
+      response.status(404).json({ error: 'Diagnostic not found' })
+      return
+    }
+    const recommendations = await db.recommendation.findMany({ where: { diagnosticId: diagnostic.id }, orderBy: { createdAt: 'desc' } })
+    response.json({ recommendations: recommendations.map(recommendationView) })
+  }))
+
+  app.post('/api/diagnostics/:id/recommendations/import', authMiddleware, asyncHandler(async (request, response) => {
+    const diagnostic = await db.qualityDiagnostic.findUnique({ where: { id: String(request.params.id) }, include: { company: { select: { consultantId: true } } } })
+    if (!diagnostic || !canAccessCompany(request, diagnostic.company)) {
+      response.status(404).json({ error: 'Diagnostic not found' })
+      return
+    }
+    const analysis = await db.aIAnalysis.findUnique({ where: { diagnosticId: diagnostic.id } })
+    if (!analysis) {
+      response.status(404).json({ error: 'AI analysis not found' })
+      return
+    }
+    const aiRecommendations = aiAnalysisSchema.parse({ executiveSummary: analysis.executiveSummary, diagnosis: analysis.diagnosis, keyFindings: analysis.keyFindings, foStrategies: analysis.foStrategies, doStrategies: analysis.doStrategies, faStrategies: analysis.faStrategies, daStrategies: analysis.daStrategies, priorityRisks: analysis.priorityRisks, priorityOpportunities: analysis.priorityOpportunities, recommendations: analysis.recommendations }).recommendations
+    const existing = await db.recommendation.findMany({ where: { diagnosticId: diagnostic.id }, select: { title: true } })
+    const existingTitles = new Set(existing.map((item) => item.title))
+    const toImport = aiRecommendations.filter((recommendation) => !existingTitles.has(recommendation.title))
+    const imported = await Promise.all(toImport.map((recommendation) => db.recommendation.create({ data: { diagnosticId: diagnostic.id, ...recommendation } })))
+    response.json({ imported: imported.map(recommendationView), skipped: aiRecommendations.length - imported.length })
+  }))
+
+  app.patch('/api/recommendations/:id', authMiddleware, asyncHandler(async (request, response) => {
+    const parsed = recommendationUpdateSchema.safeParse(request.body)
+    if (!parsed.success) {
+      response.status(400).json({ error: 'Invalid recommendation data', details: parsed.error.issues })
+      return
+    }
+    const existing = await db.recommendation.findUnique({ where: { id: String(request.params.id) }, include: { diagnostic: { include: { company: { select: { consultantId: true } } } } } })
+    if (!existing || !canAccessCompany(request, existing.diagnostic.company)) {
+      response.status(404).json({ error: 'Recommendation not found' })
+      return
+    }
+    const recommendation = await db.recommendation.update({ where: { id: existing.id }, data: parsed.data })
+    response.json({ recommendation: recommendationView(recommendation) })
+  }))
+
+  app.get('/api/diagnostics/:id/action-plans', authMiddleware, asyncHandler(async (request, response) => {
+    const diagnostic = await db.qualityDiagnostic.findUnique({ where: { id: String(request.params.id) }, include: { company: { select: { consultantId: true } } } })
+    if (!diagnostic || !canAccessCompany(request, diagnostic.company)) {
+      response.status(404).json({ error: 'Diagnostic not found' })
+      return
+    }
+    const actionPlans = await db.actionPlan.findMany({ where: { diagnosticId: diagnostic.id }, include: actionPlanInclude, orderBy: { updatedAt: 'desc' } })
+    response.json({ actionPlans: actionPlans.map(actionPlanView) })
+  }))
+
+  app.post('/api/diagnostics/:id/action-plans', authMiddleware, asyncHandler(async (request, response) => {
+    const parsed = actionPlanCreateSchema.safeParse(request.body)
+    if (!parsed.success) {
+      response.status(400).json({ error: 'Invalid action plan data', details: parsed.error.issues })
+      return
+    }
+    const diagnostic = await db.qualityDiagnostic.findUnique({ where: { id: String(request.params.id) }, include: { company: { select: { consultantId: true } } } })
+    if (!diagnostic || !canAccessCompany(request, diagnostic.company)) {
+      response.status(404).json({ error: 'Diagnostic not found' })
+      return
+    }
+    const actionPlan = await db.actionPlan.create({ data: { diagnosticId: diagnostic.id, title: parsed.data.title, description: parsed.data.description, status: parsed.data.status, createdById: request.user!.id }, include: actionPlanInclude })
+    response.status(201).json({ actionPlan: actionPlanView(actionPlan) })
+  }))
+
+  app.get('/api/action-plans/:id', authMiddleware, asyncHandler(async (request, response) => {
+    const actionPlan = await db.actionPlan.findUnique({ where: { id: String(request.params.id) }, include: { ...actionPlanInclude, diagnostic: { include: { company: { select: { consultantId: true } } } } } })
+    if (!actionPlan || !canAccessCompany(request, actionPlan.diagnostic.company)) {
+      response.status(404).json({ error: 'Action plan not found' })
+      return
+    }
+    response.json({ actionPlan: actionPlanView(actionPlan) })
+  }))
+
+  app.patch('/api/action-plans/:id', authMiddleware, asyncHandler(async (request, response) => {
+    const parsed = actionPlanUpdateSchema.safeParse(request.body)
+    if (!parsed.success) {
+      response.status(400).json({ error: 'Invalid action plan data', details: parsed.error.issues })
+      return
+    }
+    const existing = await db.actionPlan.findUnique({ where: { id: String(request.params.id) }, include: { diagnostic: { include: { company: { select: { consultantId: true } } } } } })
+    if (!existing || !canAccessCompany(request, existing.diagnostic.company)) {
+      response.status(404).json({ error: 'Action plan not found' })
+      return
+    }
+    const actionPlan = await db.actionPlan.update({ where: { id: existing.id }, data: parsed.data, include: actionPlanInclude })
+    response.json({ actionPlan: actionPlanView(actionPlan) })
+  }))
+
+  app.post('/api/action-plans/:id/items', authMiddleware, asyncHandler(async (request, response) => {
+    const parsed = actionItemCreateSchema.safeParse(request.body)
+    if (!parsed.success) {
+      response.status(400).json({ error: 'Invalid action item data', details: parsed.error.issues })
+      return
+    }
+    const actionPlan = await db.actionPlan.findUnique({ where: { id: String(request.params.id) }, select: { id: true, diagnosticId: true, diagnostic: { select: { company: { select: { consultantId: true } } } } } })
+    if (!actionPlan || !canAccessCompany(request, actionPlan.diagnostic.company)) {
+      response.status(404).json({ error: 'Action plan not found' })
+      return
+    }
+    if (parsed.data.recommendationId) {
+      const recommendation = await db.recommendation.findUnique({ where: { id: parsed.data.recommendationId }, select: { diagnosticId: true } })
+      if (!recommendation || recommendation.diagnosticId !== actionPlan.diagnosticId) {
+        response.status(400).json({ error: 'Recommendation not found for this diagnostic' })
+        return
+      }
+    }
+    if (parsed.data.responsibleId) {
+      const responsible = await db.user.findUnique({ where: { id: parsed.data.responsibleId }, select: { id: true } })
+      if (!responsible) {
+        response.status(400).json({ error: 'Responsible user not found' })
+        return
+      }
+    }
+    const item = await db.actionItem.create({ data: { actionPlanId: actionPlan.id, ...parsed.data }, include: actionItemInclude })
+    response.status(201).json({ item: actionItemView(item) })
+  }))
+
+  app.patch('/api/action-items/:id', authMiddleware, asyncHandler(async (request, response) => {
+    const parsed = actionItemUpdateSchema.safeParse(request.body)
+    if (!parsed.success) {
+      response.status(400).json({ error: 'Invalid action item data', details: parsed.error.issues })
+      return
+    }
+    const existing = await db.actionItem.findUnique({ where: { id: String(request.params.id) }, include: { actionPlan: { include: { diagnostic: { include: { company: { select: { consultantId: true } } } } } } } })
+    if (!existing || !canAccessCompany(request, existing.actionPlan.diagnostic.company)) {
+      response.status(404).json({ error: 'Action item not found' })
+      return
+    }
+    if (parsed.data.recommendationId) {
+      const recommendation = await db.recommendation.findUnique({ where: { id: parsed.data.recommendationId }, select: { diagnosticId: true } })
+      if (!recommendation || recommendation.diagnosticId !== existing.actionPlan.diagnosticId) {
+        response.status(400).json({ error: 'Recommendation not found for this diagnostic' })
+        return
+      }
+    }
+    if (parsed.data.responsibleId) {
+      const responsible = await db.user.findUnique({ where: { id: parsed.data.responsibleId }, select: { id: true } })
+      if (!responsible) {
+        response.status(400).json({ error: 'Responsible user not found' })
+        return
+      }
+    }
+    const item = await db.actionItem.update({ where: { id: existing.id }, data: parsed.data, include: actionItemInclude })
+    response.json({ item: actionItemView(item) })
+  }))
+
+  app.delete('/api/action-items/:id', authMiddleware, asyncHandler(async (request, response) => {
+    const existing = await db.actionItem.findUnique({ where: { id: String(request.params.id) }, include: { actionPlan: { include: { diagnostic: { include: { company: { select: { consultantId: true } } } } } } } })
+    if (!existing || !canAccessCompany(request, existing.actionPlan.diagnostic.company)) {
+      response.status(404).json({ error: 'Action item not found' })
+      return
+    }
+    await db.actionItem.delete({ where: { id: existing.id } })
+    response.status(204).send()
   }))
 
   app.get('/api/tickets', authMiddleware, asyncHandler(async (request, response) => {

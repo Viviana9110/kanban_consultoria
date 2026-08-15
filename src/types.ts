@@ -62,6 +62,51 @@ export type AIAnalysis = {
   updatedAt: string
 }
 
+export type RecommendationStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED'
+export type ActionPlanStatus = 'DRAFT' | 'ACTIVE' | 'COMPLETED'
+export type ActionItemStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
+
+export type Recommendation = {
+  id: string
+  diagnosticId: string
+  title: string
+  description: string
+  priority: Level
+  expectedImpact: string
+  suggestedAction: string
+  status: RecommendationStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export type ActionItem = {
+  id: string
+  actionPlanId: string
+  recommendationId: string | null
+  title: string
+  description: string
+  priority: Level
+  status: ActionItemStatus
+  responsibleId: string | null
+  dueDate: string | null
+  createdAt: string
+  updatedAt: string
+  recommendation: Pick<Recommendation, 'id' | 'title' | 'priority' | 'status'> | null
+  responsible: User | null
+}
+
+export type ActionPlan = {
+  id: string
+  diagnosticId: string
+  title: string
+  description: string
+  status: ActionPlanStatus
+  createdBy: User
+  createdAt: string
+  updatedAt: string
+  items: ActionItem[]
+}
+
 export type Ticket = {
   id: string
   title: string

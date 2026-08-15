@@ -35,11 +35,24 @@ const aiResult = {
   recommendations: [{ title: 'Priorizar procesos', description: 'Documentar el proceso principal.', priority: 'HIGH' as const, expectedImpact: 'Mayor consistencia operativa.', suggestedAction: 'Definir responsables y fechas.' }],
 }
 const persistedAIAnalysis = { id: 'cmaianalysis000000000000001', diagnosticId: diagnostic.id, ...aiResult, createdAt: new Date('2026-01-05'), updatedAt: new Date('2026-01-05') }
+const recommendation = {
+  id: 'cmrecommendation0000000001', diagnosticId: diagnostic.id, title: aiResult.recommendations[0].title, description: aiResult.recommendations[0].description, priority: aiResult.recommendations[0].priority, expectedImpact: aiResult.recommendations[0].expectedImpact, suggestedAction: aiResult.recommendations[0].suggestedAction, status: 'PENDING' as const,
+  createdAt: new Date('2026-01-06'), updatedAt: new Date('2026-01-06'),
+}
+const actionPlan = {
+  id: 'cmactionplan000000000001', diagnosticId: diagnostic.id, title: 'Plan de mejora 2026', description: 'Acciones para fortalecer la operación', status: 'ACTIVE' as const, createdById: member.id,
+  createdAt: new Date('2026-01-07'), updatedAt: new Date('2026-01-07'),
+}
+const actionItem = {
+  id: 'cmactionitem000000000001', actionPlanId: actionPlan.id, recommendationId: recommendation.id, title: 'Documentar proceso principal', description: 'Definir el flujo operativo', priority: 'HIGH' as const, status: 'PENDING' as const, responsibleId: member.id, dueDate: new Date('2026-03-01'),
+  createdAt: new Date('2026-01-08'), updatedAt: new Date('2026-01-08'),
+}
 
-function makeDb(role: Role = 'SUPERUSER', ticketOwnerId = member.id, ticketAssigneeId: string | null = null, companyConsultantId: string | null = member.id) {
+function makeDb(role: Role = 'SUPERUSER', ticketOwnerId = member.id, ticketAssigneeId: string | null = null, companyConsultantId: string | null = member.id, existingRecommendations: typeof recommendation[] = []) {
   const currentUser = role === 'SUPERUSER' ? admin : member
   const passwordHash = bcrypt.hashSync('Password123!', 4)
   let sessionActive = false
+  let storedRecommendations: typeof recommendation[] = existingRecommendations
   const db = {
     user: {
       findUnique: vi.fn(async ({ where }: { where: { email?: string } }) => where.email ? { ...currentUser, passwordHash } : { id: member.id }),
@@ -83,6 +96,24 @@ function makeDb(role: Role = 'SUPERUSER', ticketOwnerId = member.id, ticketAssig
     aIAnalysis: {
       upsert: vi.fn(async () => persistedAIAnalysis),
       findUnique: vi.fn(async () => persistedAIAnalysis),
+    },
+    recommendation: {
+      findMany: vi.fn(async () => storedRecommendations),
+      findUnique: vi.fn(async () => ({ ...recommendation, diagnostic: { company: { consultantId: companyConsultantId } } })),
+      create: vi.fn(async ({ data }: { data: { title: string } }) => { const created = { ...recommendation, title: data.title }; storedRecommendations = [created, ...storedRecommendations]; return created }),
+      update: vi.fn(async () => ({ ...recommendation, status: 'ACCEPTED', diagnostic: { company: { consultantId: companyConsultantId } } })),
+    },
+    actionPlan: {
+      findMany: vi.fn(async () => [{ ...actionPlan, createdBy: member, items: [] }]),
+      findUnique: vi.fn(async () => ({ ...actionPlan, createdBy: member, items: [], diagnostic: { company: { consultantId: companyConsultantId } } })),
+      create: vi.fn(async () => ({ ...actionPlan, createdBy: member, items: [] })),
+      update: vi.fn(async () => ({ ...actionPlan, status: 'COMPLETED', createdBy: member, items: [] })),
+    },
+    actionItem: {
+      findUnique: vi.fn(async () => ({ ...actionItem, actionPlan: { diagnosticId: actionPlan.id, diagnostic: { company: { consultantId: companyConsultantId } } }, recommendation: { id: recommendation.id, title: recommendation.title, priority: recommendation.priority, status: recommendation.status }, responsible: member })),
+      create: vi.fn(async () => ({ ...actionItem, recommendation: { id: recommendation.id, title: recommendation.title, priority: recommendation.priority, status: recommendation.status }, responsible: member })),
+      update: vi.fn(async () => ({ ...actionItem, status: 'IN_PROGRESS', recommendation: { id: recommendation.id, title: recommendation.title, priority: recommendation.priority, status: recommendation.status }, responsible: member })),
+      delete: vi.fn(),
     },
   }
   return db as unknown as PrismaClient
@@ -145,8 +176,18 @@ describe('authentication and authorization API', () => {
       request(app).delete(`/api/swot/items/${swotItem.id}`),
       request(app).post(`/api/diagnostics/${diagnostic.id}/ai-analysis`),
       request(app).get(`/api/diagnostics/${diagnostic.id}/ai-analysis`),
+      request(app).get(`/api/diagnostics/${diagnostic.id}/recommendations`),
+      request(app).post(`/api/diagnostics/${diagnostic.id}/recommendations/import`),
+      request(app).patch(`/api/recommendations/${recommendation.id}`),
+      request(app).get(`/api/diagnostics/${diagnostic.id}/action-plans`),
+      request(app).post(`/api/diagnostics/${diagnostic.id}/action-plans`),
+      request(app).get(`/api/action-plans/${actionPlan.id}`),
+      request(app).patch(`/api/action-plans/${actionPlan.id}`),
+      request(app).post(`/api/action-plans/${actionPlan.id}/items`),
+      request(app).patch(`/api/action-items/${actionItem.id}`),
+      request(app).delete(`/api/action-items/${actionItem.id}`),
     ])
-    expect(responses.map((response) => response.status)).toEqual([401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 401])
+    expect(responses.map((response) => response.status)).toEqual([401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 401])
   })
 
   it('invalidates the session and cookie on logout', async () => {
@@ -366,5 +407,99 @@ describe('AI analysis service and API', () => {
     expect((await agent.post(`/api/diagnostics/${diagnostic.id}/ai-analysis`)).status).toBe(404)
     expect((await agent.get(`/api/diagnostics/${diagnostic.id}/ai-analysis`)).status).toBe(404)
     expect(aiService.analyze).not.toHaveBeenCalled()
+  })
+})
+
+describe('recommendations and action plans API', () => {
+  it('imports AI recommendations without calling OpenAI and lists them', async () => {
+    const db = makeDb()
+    const agent = request.agent(createApp(db))
+    await agent.post('/api/auth/login').send({ email: admin.email, password: 'Password123!' })
+    const imported = await agent.post(`/api/diagnostics/${diagnostic.id}/recommendations/import`)
+    expect(imported.status).toBe(200)
+    expect(imported.body.imported).toHaveLength(1)
+    expect(imported.body.imported[0].title).toBe(aiResult.recommendations[0].title)
+    expect(imported.body.skipped).toBe(0)
+    expect(db.aIAnalysis.upsert).not.toHaveBeenCalled()
+    const list = await agent.get(`/api/diagnostics/${diagnostic.id}/recommendations`)
+    expect(list.status).toBe(200)
+    expect(list.body.recommendations).toHaveLength(1)
+  })
+
+  it('skips duplicate AI recommendations on a second import', async () => {
+    const agent = request.agent(createApp(makeDb('SUPERUSER', member.id, null, member.id, [recommendation])))
+    await agent.post('/api/auth/login').send({ email: admin.email, password: 'Password123!' })
+    const imported = await agent.post(`/api/diagnostics/${diagnostic.id}/recommendations/import`)
+    expect(imported.status).toBe(200)
+    expect(imported.body.imported).toHaveLength(0)
+    expect(imported.body.skipped).toBe(1)
+  })
+
+  it('accepts and rejects imported recommendations', async () => {
+    const agent = request.agent(createApp(makeDb()))
+    await agent.post('/api/auth/login').send({ email: admin.email, password: 'Password123!' })
+    const accepted = await agent.patch(`/api/recommendations/${recommendation.id}`).send({ status: 'ACCEPTED' })
+    expect(accepted.status).toBe(200)
+    expect(accepted.body.recommendation.status).toBe('ACCEPTED')
+    expect((await agent.patch(`/api/recommendations/${recommendation.id}`).send({ status: 'REJECTED' })).status).toBe(200)
+  })
+
+  it('rejects invalid recommendation payloads', async () => {
+    const agent = request.agent(createApp(makeDb()))
+    await agent.post('/api/auth/login').send({ email: admin.email, password: 'Password123!' })
+    const invalid = await agent.patch(`/api/recommendations/${recommendation.id}`).send({ status: 'UNKNOWN' })
+    expect(invalid.status).toBe(400)
+  })
+
+  it('creates action plans and adds, updates and deletes action items', async () => {
+    const agent = request.agent(createApp(makeDb()))
+    await agent.post('/api/auth/login').send({ email: admin.email, password: 'Password123!' })
+    const created = await agent.post(`/api/diagnostics/${diagnostic.id}/action-plans`).send({ title: actionPlan.title, description: actionPlan.description, status: 'ACTIVE' })
+    expect(created.status).toBe(201)
+    expect(created.body.actionPlan.title).toBe(actionPlan.title)
+    expect((await agent.get(`/api/diagnostics/${diagnostic.id}/action-plans`)).status).toBe(200)
+    expect((await agent.get(`/api/action-plans/${actionPlan.id}`)).status).toBe(200)
+
+    const item = await agent.post(`/api/action-plans/${actionPlan.id}/items`).send({ title: actionItem.title, description: actionItem.description, priority: 'HIGH', recommendationId: recommendation.id, responsibleId: member.id, dueDate: '2026-03-01' })
+    expect(item.status).toBe(201)
+    expect(item.body.item.responsible.name).toBe(member.name)
+    const updated = await agent.patch(`/api/action-items/${actionItem.id}`).send({ status: 'IN_PROGRESS', priority: 'MEDIUM' })
+    expect(updated.status).toBe(200)
+    expect(updated.body.item.status).toBe('IN_PROGRESS')
+    expect((await agent.delete(`/api/action-items/${actionItem.id}`)).status).toBe(204)
+  })
+
+  it('validates action plan and action item payloads', async () => {
+    const agent = request.agent(createApp(makeDb()))
+    await agent.post('/api/auth/login').send({ email: admin.email, password: 'Password123!' })
+    const badPlan = await agent.post(`/api/diagnostics/${diagnostic.id}/action-plans`).send({ title: 'x', description: '' })
+    expect(badPlan.status).toBe(400)
+    const badItem = await agent.post(`/api/action-plans/${actionPlan.id}/items`).send({ title: 'x', description: '', priority: 'UNKNOWN' })
+    expect(badItem.status).toBe(400)
+    expect((await agent.patch(`/api/action-items/${actionItem.id}`).send({})).status).toBe(400)
+  })
+
+  it('rejects a recommendation that does not belong to the diagnostic', async () => {
+    const db = makeDb()
+    ;(db.recommendation.findUnique as unknown as { mockResolvedValue: (value: unknown) => unknown }).mockResolvedValue({ diagnosticId: 'another-diagnostic' })
+    const agent = request.agent(createApp(db))
+    await agent.post('/api/auth/login').send({ email: admin.email, password: 'Password123!' })
+    const response = await agent.post(`/api/action-plans/${actionPlan.id}/items`).send({ title: 'Acción correcta', description: 'Descripción válida', priority: 'HIGH', recommendationId: recommendation.id })
+    expect(response.status).toBe(400)
+  })
+
+  it('blocks users from another company using recommendation and plan IDs', async () => {
+    const agent = request.agent(createApp(makeDb('USER', member.id, null, admin.id)))
+    await agent.post('/api/auth/login').send({ email: member.email, password: 'Password123!' })
+    expect((await agent.get(`/api/diagnostics/${diagnostic.id}/recommendations`)).status).toBe(404)
+    expect((await agent.post(`/api/diagnostics/${diagnostic.id}/recommendations/import`)).status).toBe(404)
+    expect((await agent.patch(`/api/recommendations/${recommendation.id}`).send({ status: 'ACCEPTED' })).status).toBe(404)
+    expect((await agent.get(`/api/diagnostics/${diagnostic.id}/action-plans`)).status).toBe(404)
+    expect((await agent.post(`/api/diagnostics/${diagnostic.id}/action-plans`).send({ title: 'Intrusión', description: 'Intrusión' })).status).toBe(404)
+    expect((await agent.get(`/api/action-plans/${actionPlan.id}`)).status).toBe(404)
+    expect((await agent.patch(`/api/action-plans/${actionPlan.id}`).send({ status: 'COMPLETED' })).status).toBe(404)
+    expect((await agent.post(`/api/action-plans/${actionPlan.id}/items`).send({ title: 'Acción', description: 'Descripción', priority: 'HIGH' })).status).toBe(404)
+    expect((await agent.patch(`/api/action-items/${actionItem.id}`).send({ status: 'COMPLETED' })).status).toBe(404)
+    expect((await agent.delete(`/api/action-items/${actionItem.id}`)).status).toBe(404)
   })
 })

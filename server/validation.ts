@@ -105,3 +105,45 @@ export const aiAnalysisSchema = z.object({
   priorityOpportunities: z.array(z.string().trim().min(1).max(2000)).max(30),
   recommendations: z.array(aiRecommendationSchema).max(30),
 })
+
+export const recommendationStatusSchema = z.enum(['PENDING', 'ACCEPTED', 'REJECTED'])
+export const actionPlanStatusSchema = z.enum(['DRAFT', 'ACTIVE', 'COMPLETED'])
+export const actionItemStatusSchema = z.enum(['PENDING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'])
+
+export const recommendationUpdateSchema = z.object({
+  status: recommendationStatusSchema,
+})
+
+export const actionPlanCreateSchema = z.object({
+  title: z.string().trim().min(3).max(120),
+  description: z.string().trim().min(3).max(5000),
+  status: actionPlanStatusSchema.optional(),
+})
+
+export const actionPlanUpdateSchema = actionPlanCreateSchema.partial().refine(
+  (value) => Object.keys(value).length > 0,
+  'At least one field is required',
+)
+
+export const actionItemCreateSchema = z.object({
+  title: z.string().trim().min(3).max(120),
+  description: z.string().trim().min(3).max(5000),
+  priority: priorityLevelSchema,
+  status: actionItemStatusSchema.optional(),
+  recommendationId: z.string().cuid().nullable().optional(),
+  responsibleId: z.string().cuid().nullable().optional(),
+  dueDate: z.coerce.date().nullable().optional(),
+})
+
+export const actionItemUpdateSchema = z.object({
+  title: z.string().trim().min(3).max(120).optional(),
+  description: z.string().trim().min(3).max(5000).optional(),
+  priority: priorityLevelSchema.optional(),
+  status: actionItemStatusSchema.optional(),
+  recommendationId: z.string().cuid().nullable().optional(),
+  responsibleId: z.string().cuid().nullable().optional(),
+  dueDate: z.coerce.date().nullable().optional(),
+}).refine(
+  (value) => Object.keys(value).length > 0,
+  'At least one field is required',
+)
