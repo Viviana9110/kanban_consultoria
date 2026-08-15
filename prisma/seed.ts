@@ -7,7 +7,13 @@ const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL ?? 'po
 const prisma = new PrismaClient({ adapter })
 
 async function main() {
+  if (process.env.NODE_ENV === 'production' && !process.env.SEED_PASSWORD) {
+    throw new Error('SEED_PASSWORD must be set to seed users in production')
+  }
   const password = process.env.SEED_PASSWORD ?? 'CambiarEstaClave123!'
+  if (!process.env.SEED_PASSWORD) {
+    console.warn('Using the default SEED_PASSWORD. Set SEED_PASSWORD before seeding real environments.')
+  }
   const passwordHash = await bcrypt.hash(password, 12)
 
   await prisma.user.upsert({
