@@ -5,8 +5,16 @@ import { prisma } from './prisma.js'
 const server = createApp().listen(env.PORT, () => console.log(`API listening on port ${env.PORT}`))
 
 const shutdown = async () => {
+  console.log('Shutting down...')
   server.close()
-  await prisma.$disconnect()
+  server.closeIdleConnections?.()
+  const forceExit = setTimeout(() => process.exit(1), 10_000)
+  forceExit.unref()
+  try {
+    await prisma.$disconnect()
+  } catch (error) {
+    console.error('Error disconnecting database:', error)
+  }
 }
 
 process.on('SIGINT', shutdown)

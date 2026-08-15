@@ -40,7 +40,33 @@ El proxy de Vite envía `/api` a `http://localhost:4000`.
 - `npm run typecheck`: valida frontend y backend.
 - `npm run lint`: ejecuta ESLint.
 - `npm test`: ejecuta pruebas de API y validaciones.
-- `npm run build`: genera el build del frontend.
+- `npm run build`: genera el build del frontend y del backend.
+- `npm run build:server`: genera solo el build del backend en `dist-server`.
+- `npm run start`: arranca el backend compilado (`node dist-server/index.js`).
+
+## Producción
+
+1. Construye frontend y backend:
+
+```bash
+npm run build
+```
+
+2. Aplica las migraciones en la base de producción:
+
+```bash
+npx prisma migrate deploy
+```
+
+3. Arranca el backend compilado con `NODE_ENV=production` y las variables reales:
+
+```bash
+npm run start
+```
+
+En producción es obligatorio definir explícitamente `NODE_ENV`, `DATABASE_URL`, `FRONTEND_URL` y `SEED_PASSWORD` (el seed rechaza la contraseña por defecto y el backend se niega a arrancar si `DATABASE_URL` o `FRONTEND_URL` quedan en los valores de desarrollo). Si la API corre detrás de un proxy reverso, ajusta `TRUST_PROXY_HOPS` al número de niveles de proxy para que el rate limiting y el remoto del cliente se calculen bien.
+
+Seguridad activada solo en producción: cookie de sesión con `Secure`, `Strict-Transport-Security` (HSTS) y cabeceras de endurecimiento en todas las respuestas.
 
 ## API
 

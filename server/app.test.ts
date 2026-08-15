@@ -3,6 +3,7 @@ import request from 'supertest'
 import { describe, expect, it, vi } from 'vitest'
 import type { PrismaClient, Role } from '@prisma/client'
 import { createApp } from './app.js'
+import { envSchema } from './env.js'
 import { AIService, AIServiceError } from './ai-service.js'
 import { dashboardScopesFor } from './dashboard-service.js'
 import { aiAnalysisSchema, companyCreateSchema, companyUpdateSchema, diagnosticCreateSchema, diagnosticUpdateSchema, loginSchema, swotItemCreateSchema, swotItemUpdateSchema, ticketCreateSchema, ticketUpdateSchema } from './validation.js'
@@ -147,6 +148,23 @@ describe('validation schemas', () => {
   })
 })
 
+describe('environment validation', () => {
+  it('rejects production startup with development default database and frontend values', () => {
+    const result = envSchema.safeParse({ NODE_ENV: 'production' })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts production startup with explicit database and frontend values', () => {
+    const result = envSchema.safeParse({
+      NODE_ENV: 'production',
+      DATABASE_URL: 'postgresql://user:pass@db.prod:5432/kanban',
+      FRONTEND_URL: 'https://app.example.com',
+    })
+    expect(result.success).toBe(true)
+    expect(result.success ? result.data.TRUST_PROXY_HOPS : -1).toBe(0)
+  })
+})
+
 describe('authentication and authorization API', () => {
   it('logs in, persists the session cookie, and returns the current user', async () => {
     const agent = request.agent(createApp(makeDb()))
@@ -196,6 +214,7 @@ describe('authentication and authorization API', () => {
     expect(response.headers['x-frame-options']).toBe('DENY')
     expect(response.headers['referrer-policy']).toBe('no-referrer')
     expect(response.headers['cache-control']).toContain('no-store')
+    expect(response.headers['x-powered-by']).toBeUndefined()
   })
 
   it('returns 400 for a malformed JSON body instead of 500', async () => {

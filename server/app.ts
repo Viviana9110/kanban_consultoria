@@ -39,6 +39,8 @@ const canAccessCompany = (request: Request, company: { consultantId: string | nu
 
 export const createApp = (db: PrismaClient = prisma, aiService: AIService = new AIService()) => {
   const app = express()
+  app.disable('x-powered-by')
+  app.set('trust proxy', env.TRUST_PROXY_HOPS)
   app.use(cors({ origin: env.FRONTEND_URL, credentials: true }))
   app.use(express.json({ limit: '1mb' }))
   app.use(cookieParser())
