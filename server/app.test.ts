@@ -488,7 +488,8 @@ describe('AI analysis service and API', () => {
   })
 
   it('returns a controlled error for missing configuration and invalid service output', async () => {
-    const unconfigured = request.agent(createApp(makeDb('SUPERUSER'), new AIService()))
+    const unconfiguredService = { analyze: vi.fn(async () => { throw new AIServiceError('NOT_CONFIGURED') }) } as unknown as AIService
+    const unconfigured = request.agent(createApp(makeDb('SUPERUSER'), unconfiguredService))
     await unconfigured.post('/api/auth/login').send({ email: admin.email, password: 'Password123!' })
     const unavailable = await unconfigured.post(`/api/diagnostics/${diagnostic.id}/ai-analysis`)
     expect(unavailable.status).toBe(503)
