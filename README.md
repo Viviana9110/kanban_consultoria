@@ -1,90 +1,245 @@
 # Kanban Consultoria
 
-Módulo inicial de operación: autenticación, dashboard y gestión de tickets.
+Plataforma web para consultoras que quieren ordenar el trabajo operativo y llevar sus diagnósticos estratégicos de un tablero de ideas a un plan de acción medible. Autenticación con roles, gestión de tickets, portafolio de clientes, diagnósticos **DOFA** y un **análisis estratégico asistido por IA** con respuestas estructuradas y validadas.
+
+> Módulo inicial de operación: autenticación, dashboard, tickets, empresas, diagnósticos DOFA, análisis IA, recomendaciones y planes de acción.
+
+---
+
+## Problema que resuelve
+
+Las consultoras pequeñas y medianas suelen atender solicitudes, clientes y entregables de forma dispersa (correo, hojas de cálculo, chats), lo que provoca:
+
+- solicitudes sin seguimiento ni responsable claro;
+- diagnósticos estratégicos (DOFA) que no se convierten en recomendaciones ejecutables;
+- imposibilidad de medir avance por cliente o por consultor;
+- exposición de información de un consultor a otro por falta de control de acceso.
+
+**Kanban Consultoria** concentra tickets, clientes y diagnósticos en un solo espacio de trabajo, aplica control de acceso por rol y por consultor, y conecta el análisis DOFA con un motor de IA que propone estrategias y recomendaciones **trazables** a los factores registrados.
+
+## Características principales
+
+- **Autenticación por sesión**: cookies `HttpOnly`, `SameSite=Lax` y `Secure` en producción, token con hash SHA-256 en la base de datos y expiración configurable.
+- **Roles y permisos (RBAC)**: `SUPERUSER` con alcance global y `USER` (consultor) con alcance limitado a lo propio o asignado.
+- **Tickets**: creación, edición, asignación, estados, prioridades, filtros y búsqueda.
+- **Empresas**: portafolio de clientes con consultor responsable asignado.
+- **Diagnósticos y matriz DOFA**: CRUD de diagnósticos y factores (fortalezas, debilidades, oportunidades y amenazas) con prioridad e impacto.
+- **Análisis IA estructurado**: resumen ejecutivo, diagnóstico, hallazgos (FACT/INFERENCE), estrategias FO-DO-FA-DA, riesgos y oportunidades priorizados.
+- **Recomendaciones**: importación desde el análisis IA (con deduplicación por título) y gestión de estado (pendiente, aceptada, rechazada).
+- **Planes de acción**: planes con ítems, responsables y fechas de vencimiento, vinculados a recomendaciones.
+- **Dashboard ejecutivo**: métricas de calidad (empresas, diagnósticos, recomendaciones, planes, acciones vencidas) filtradas por rol y consultor.
+- **Seguridad**: validación Zod en todas las entradas, protección contra IDOR, rate limiting, CORS restringido, cabeceras de seguridad y manejo de errores controlado.
+
+## Flujo funcional
+
+1. El usuario inicia sesión y recibe una cookie de sesión.
+2. El dashboard muestra métricas y accesos rápidos según su rol.
+3. El consultor registra **empresas** y crea **diagnósticos** para cada cliente.
+4. Construye la **matriz DOFA** con factores (tipo, prioridad, impacto).
+5. Ejecuta el **análisis IA** (rate limited): la IA devuelve solo JSON estructurado que es validado antes de persistirse.
+6. **Importa las recomendaciones** del análisis a la pestaña de recomendaciones.
+7. Crea **planes de acción** con ítems, responsables y vencimientos asociados a las recomendaciones.
+8. Hace seguimiento desde el dashboard (acciones en curso y vencidas) y los tickets operativos.
+
+## Stack tecnológico
+
+| Capa | Tecnología |
+|---|---|
+| Frontend | React 19, TypeScript, Vite, CSS propio |
+| Backend | Node.js, Express 5, TypeScript |
+| Base de datos | PostgreSQL 14+ |
+| ORM | Prisma 7 (`@prisma/client` + `@prisma/adapter-pg`) |
+| IA | OpenAI SDK (Responses API, JSON Schema estricto) |
+| Validación | Zod 4 |
+| Autenticación | `bcryptjs` + sesiones en base de datos |
+| Seguridad HTTP | `express-rate-limit`, `cors`, `cookie-parser`, cabeceras propias |
+| Testing | Vitest + Supertest |
+
+## Arquitectura
+
+- **Frontend (SPA)**: un solo `index.html` servido por Vite; el cliente consume la API a través de un proxy `/api` en desarrollo y de la misma URL pública en producción.
+- **Backend (API REST)**: Express con rutas organizadas por dominio (auth, users, tickets, companies, diagnostics, swot, ai-analysis, recommendations, action-plans, dashboard), middleware de autenticación/autorización y un único manejador de errores.
+- **Base de datos (PostgreSQL)**: Prisma como ORM con migraciones versionadas; sesiones, usuarios, tickets, empresas, diagnósticos, DOFA, análisis IA, recomendaciones, planes e ítems.
+- **Servicio de IA**: aislado en `server/ai-service.ts`; se inyecta en la app para permitir pruebas sin llamadas reales; si no hay `OPENAI_API_KEY` responde `503` de forma controlada.
+
+Detalles en [docs/architecture.md](docs/architecture.md).
+
+## Módulos
+
+| Módulo | Backend | Frontend |
+|---|---|---|
+| Autenticación | `server/auth.ts`, rutas `/api/auth/*` | Login, sesión, logout |
+| Usuarios | `/api/users` | Selección de responsables/asignados |
+| Tickets | `/api/tickets` | Vista Tickets (filtros, búsqueda) |
+| Empresas | `/api/companies` | Vista Empresas (CRUD, detalle) |
+| Diagnósticos | `/api/companies/:id/diagnostics`, `/api/diagnostics/*` | Detalle de diagnóstico, formularios |
+| DOFA | `/api/diagnostics/:id/swot/items`, `/api/swot/items/*` | Matriz de 4 cuadrantes |
+| Análisis IA | `server/ai-service.ts`, `/api/diagnostics/:id/ai-analysis` | Botón "Analizar con IA" y panel |
+| Recomendaciones | `/api/diagnostics/:id/recommendations`, `/api/recommendations/*` | Panel de recomendaciones e importación |
+| Planes de acción | `/api/diagnostics/:id/action-plans`, `/api/action-plans/*` | Panel de planes e ítems |
+| Dashboard | `server/dashboard-service.ts`, `/api/dashboard` | Resumen con métricas y listas |
+
+## IA y análisis DOFA
+
+El análisis IA solo recibe la información del diagnóstico (título, descripción, estado y factores DOFA) y está instruido para **no inventar hechos ni cifras**. Cada hallazgo se clasifica como `FACT` (explícito en los datos) o `INFERENCE` (inferencia razonable).
+
+- La respuesta se genera con **JSON Schema estricto** (`strict: true`) y se valida de nuevo con Zod antes de persistir.
+- Si la IA no devuelve JSON válido o no cumple el esquema, la API responde `502` sin guardar nada.
+- Si no hay `OPENAI_API_KEY`, el endpoint responde `503` ("AI analysis is not configured").
+- El endpoint tiene **rate limit** propio (15 solicitudes/hora) para evitar abuso de costos.
+
+## Seguridad
+
+- Contraseñas con `bcrypt` (cost 12) y **comparación contra un hash dummy** para no revelar si el correo existe.
+- Sesiones: token aleatorio (32 bytes) almacenado como **hash SHA-256**; cookie `HttpOnly`, `SameSite=Lax`, `Secure` en producción.
+- **RBAC**: rutas protegidas por rol (`SUPERUSER`/`USER`) y **por objeto** (empresas por consultor, tickets por creador/asignado, dashboard con alcances por rol) para bloquear **IDOR**.
+- **Rate limiting** en login (10/15 min) y análisis IA (15/h); soporte para `TRUST_PROXY_HOPS` detrás de proxy.
+- **Validación Zod** en todos los cuerpos y consultas; respuestas de error sin exponer detalles internos.
+- **CORS** restringido a `FRONTEND_URL`; cabeceras `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`, `X-Permitted-Cross-Domain-Policies`, `Cache-Control: no-store`, HSTS en producción y `X-Powered-By` deshabilitada.
+- En producción el backend **se niega a arrancar** si `DATABASE_URL` o `FRONTEND_URL` quedan en los valores de desarrollo.
+- **Secretos**: `.env` está en `.gitignore`; la clave de OpenAI solo se usa en el backend.
+
+Detalles en [docs/security.md](docs/security.md).
+
+## Testing
+
+- **45 tests** (Vitest + Supertest) sobre schemas de validación, autenticación/autorización, CRUD, alcances por rol, protección IDOR, respuesta IA (con cliente simulado, sin llamadas reales), rate limiting, importación de recomendaciones y planes de acción.
+- **E2E real (36/36 verificados)**: flujo completo contra PostgreSQL y OpenAI reales: login, empresa, diagnóstico, DOFA, análisis IA, persistencia, importación de recomendaciones, plan de acción, logout y permisos.
+
+## Estructura del proyecto
+
+```
+.
+├── docs/                    # Documentación técnica
+│   ├── architecture.md
+│   ├── api.md
+│   ├── security.md
+│   └── development.md
+├── prisma/
+│   ├── migrations/          # Migraciones versionadas
+│   ├── schema.prisma        # Modelo de datos
+│   └── seed.ts              # Seed de desarrollo
+├── public/                  # Assets estáticos (favicon, iconos)
+├── server/                  # Backend (Express)
+│   ├── app.ts               # Rutas, middleware y manejador de errores
+│   ├── auth.ts              # Sesiones, autenticación y autorización
+│   ├── ai-service.ts        # Cliente OpenAI y validación de respuesta
+│   ├── dashboard-service.ts # Métricas y alcances del dashboard
+│   ├── validation.ts        # Schemas Zod
+│   ├── env.ts               # Variables de entorno (Zod)
+│   └── index.ts             # Punto de entrada (build de producción)
+├── src/                     # Frontend (React + Vite)
+├── .env.example             # Plantilla de variables de entorno
+├── package.json
+├── tsconfig*.json           # Configuración TypeScript (app, node, server)
+└── vite.config.ts           # Proxy /api en desarrollo
+```
 
 ## Requisitos
 
-- Node.js 20+
+- Node.js 20+ (probado con Node 24)
 - PostgreSQL 14+
+- npm
 
-## Configuración local
-
-1. Copia `.env.example` a `.env` y ajusta `DATABASE_URL`.
-2. Instala dependencias con `npm install`.
-3. Genera el cliente y aplica la migración:
+## Instalación
 
 ```bash
-npm run db:generate
-npx prisma migrate deploy
+git clone <url-del-repositorio>
+cd kanban-consultoria
+npm install
+```
+
+## Variables de entorno
+
+Copia `.env.example` a `.env` y ajusta los valores:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Descripción | Default |
+|---|---|---|
+| `NODE_ENV` | `development`, `test` o `production` | `development` |
+| `PORT` | Puerto de la API | `4000` |
+| `DATABASE_URL` | Conexión PostgreSQL | valor local de desarrollo |
+| `FRONTEND_URL` | Origen permitido por CORS | `http://localhost:5173` |
+| `SESSION_COOKIE` | Nombre de la cookie de sesión | `kanban_session` |
+| `SESSION_DAYS` | Días de vida de la sesión | `30` |
+| `TRUST_PROXY_HOPS` | Niveles de proxy reverso (0 si no hay) | `0` |
+| `SEED_PASSWORD` | Contraseña de los usuarios del seed | — |
+| `OPENAI_API_KEY` | Clave de OpenAI (opcional; sin ella la IA responde 503) | — |
+| `OPENAI_MODEL` | Modelo para el análisis IA | `gpt-4o-mini` |
+
+> En **producción**, `DATABASE_URL` y `FRONTEND_URL` son obligatorias y no pueden ser los valores de desarrollo (el backend no arranca si lo son). No se requiere `SEED_PASSWORD` en producción (el seed la rechaza).
+
+## Desarrollo local
+
+```bash
+npm run dev:api   # API en http://localhost:4000
+npm run dev       # Frontend en http://localhost:5173 (proxy /api)
+```
+
+## Migraciones Prisma
+
+```bash
+npm run db:generate    # Genera el cliente Prisma
+npx prisma migrate dev # Aplica migraciones y crea el esquema (desarrollo)
+npx prisma migrate deploy # Aplica migraciones existentes (producción)
+```
+
+## Seed
+
+```bash
 npm run db:seed
 ```
 
-El seed crea usuarios únicamente para desarrollo. Usa `SEED_PASSWORD` para definir la contraseña de ambos usuarios:
+Crea dos usuarios de desarrollo con la contraseña de `SEED_PASSWORD`:
 
-- `admin@kanban.local` como `SUPERUSER`
-- `usuario@kanban.local` como `USER`
+- `admin@kanban.local` — rol `SUPERUSER`
+- `usuario@kanban.local` — rol `USER`
 
-## Desarrollo
-
-Ejecuta la API y el frontend en terminales separadas:
+## Build de producción
 
 ```bash
-npm run dev:api
-npm run dev
+npm run build        # Frontend (dist) + Backend (dist-server)
+npm run build:server # Solo backend
 ```
 
-El proxy de Vite envía `/api` a `http://localhost:4000`.
-
-## Scripts
-
-- `npm run typecheck`: valida frontend y backend.
-- `npm run lint`: ejecuta ESLint.
-- `npm test`: ejecuta pruebas de API y validaciones.
-- `npm run build`: genera el build del frontend y del backend.
-- `npm run build:server`: genera solo el build del backend en `dist-server`.
-- `npm run start`: arranca el backend compilado (`node dist-server/index.js`).
-
-## Producción
-
-1. Construye frontend y backend:
-
-```bash
-npm run build
-```
-
-2. Aplica las migraciones en la base de producción:
-
-```bash
-npx prisma migrate deploy
-```
-
-3. Arranca el backend compilado con `NODE_ENV=production` y las variables reales:
+## Ejecución de producción
 
 ```bash
 npm run start
 ```
 
-En producción es obligatorio definir explícitamente `NODE_ENV`, `DATABASE_URL`, `FRONTEND_URL` y `SEED_PASSWORD` (el seed rechaza la contraseña por defecto y el backend se niega a arrancar si `DATABASE_URL` o `FRONTEND_URL` quedan en los valores de desarrollo). Si la API corre detrás de un proxy reverso, ajusta `TRUST_PROXY_HOPS` al número de niveles de proxy para que el rate limiting y el remoto del cliente se calculen bien.
+Detalles de despliegue en [docs/development.md](docs/development.md).
 
-Seguridad activada solo en producción: cookie de sesión con `Secure`, `Strict-Transport-Security` (HSTS) y cabeceras de endurecimiento en todas las respuestas.
+## Estado actual del proyecto
 
-## API
+**Implementado**
 
-- `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
-- `GET /api/users`, `POST /api/users`
-- `GET /api/tickets`, `POST /api/tickets`, `GET /api/tickets/:id`
-- `PATCH /api/tickets/:id`, `DELETE /api/tickets/:id`
-- `GET /api/companies`, `POST /api/companies`, `GET /api/companies/:id`
-- `PATCH /api/companies/:id`, `DELETE /api/companies/:id`
-- `GET /api/companies/:companyId/diagnostics`, `POST /api/companies/:companyId/diagnostics`
-- `GET /api/diagnostics/:id`, `PATCH /api/diagnostics/:id`, `DELETE /api/diagnostics/:id`
-- `POST /api/diagnostics/:id/swot/items`, `PATCH /api/swot/items/:id`, `DELETE /api/swot/items/:id`
-- `POST /api/diagnostics/:id/ai-analysis`, `GET /api/diagnostics/:id/ai-analysis`
-- `GET /api/diagnostics/:id/recommendations`, `POST /api/diagnostics/:id/recommendations/import`
-- `PATCH /api/recommendations/:id`
-- `GET /api/diagnostics/:id/action-plans`, `POST /api/diagnostics/:id/action-plans`
-- `GET /api/action-plans/:id`, `PATCH /api/action-plans/:id`
-- `POST /api/action-plans/:id/items`, `PATCH /api/action-items/:id`, `DELETE /api/action-items/:id`
-- `GET /api/dashboard`: métricas de gestión de calidad (empresas, diagnósticos, recomendaciones, planes y acciones) filtradas por rol y consultor.
+- Autenticación por sesión con roles y control de acceso por objeto.
+- Dashboard con métricas, tickets, empresas, diagnósticos DOFA, análisis IA, recomendaciones y planes de acción.
+- Seguridad integral (RBAC, IDOR, rate limiting, validación, cabeceras, secretos fuera del repositorio).
+- 45 tests unitarios/integración y E2E real verificado (36/36).
+- Build de producción para frontend y backend; `npm audit` con 0 vulnerabilidades.
 
-Las sesiones usan cookies `HttpOnly` persistentes y el backend aplica autorización por rol, validación Zod, CORS restringido y rate limiting al login. `OPENAI_API_KEY` solo se configura en el backend; sin ella el endpoint IA responde de forma controlada.
+**Futuras mejoras (no implementadas)**
+
+- Módulo de **Reportes** (navegación ya lo sugiere como "Pronto" en la UI).
+- Notificaciones.
+- Limpieza programada (TTL) de sesiones expiradas.
+- Refuerzos opcionales: 2FA, reCAPTCHA, panel de administración completo de usuarios.
+
+---
+
+## Portfolio Highlights
+
+- **React + Vite** con TypeScript y UI propia (sin biblioteca de componentes).
+- **Node.js + Express** API REST con manejo de errores centralizado.
+- **PostgreSQL + Prisma** con migraciones versionadas y driver adapter nativo.
+- **Integración con OpenAI** (Responses API) con **respuestas estructuradas** validadas por JSON Schema + Zod.
+- **Análisis DOFA** conectado a estrategias y recomendaciones trazables generadas por IA.
+- **RBAC** (roles `SUPERUSER`/`USER`) y **protección contra IDOR** verificada con tests.
+- **45 tests** (Vitest + Supertest) en schemas, auth, CRUD, permisos e IA.
+- **E2E real** con 36/36 verificaciones contra PostgreSQL y OpenAI.
+- **`npm audit` con 0 vulnerabilidades** y endurecimiento de producción (HSTS, cookies `Secure`, guard de entorno, rate limiting).
