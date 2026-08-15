@@ -167,16 +167,18 @@ function Companies({ user, intent, onConsumeIntent }: { user: User; intent: Comp
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
 
   const loadCompanies = useCallback(async () => {
     setLoading(true); setError('')
     try {
       const params = new URLSearchParams()
-      if (search) params.set('search', search)
+      if (debouncedSearch) params.set('search', debouncedSearch)
       const result = await api<{ companies: Company[] }>(`/companies?${params}`)
       setCompanies(result.companies)
     } catch { setError('No pudimos cargar las empresas.') } finally { setLoading(false) }
-  }, [search])
+  }, [debouncedSearch])
+  useEffect(() => { const timer = window.setTimeout(() => setDebouncedSearch(search), 350); return () => window.clearTimeout(timer) }, [search])
   useEffect(() => { const timer = window.setTimeout(() => { void loadCompanies() }, 0); return () => window.clearTimeout(timer) }, [loadCompanies])
   useEffect(() => { if (user.role === 'SUPERUSER') api<{ users: User[] }>('/users').then((result) => setUsers(result.users)).catch(() => undefined) }, [user.role])
 
@@ -273,6 +275,7 @@ function Tickets({ user }: { user: User }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [priorityFilter, setPriorityFilter] = useState('')
 
@@ -280,13 +283,14 @@ function Tickets({ user }: { user: User }) {
     setLoading(true); setError('')
     try {
       const params = new URLSearchParams()
-      if (search) params.set('search', search)
+      if (debouncedSearch) params.set('search', debouncedSearch)
       if (statusFilter) params.set('status', statusFilter)
       if (priorityFilter) params.set('priority', priorityFilter)
       const result = await api<{ tickets: Ticket[] }>(`/tickets?${params}`)
       setTickets(result.tickets)
     } catch { setError('No pudimos cargar los tickets.') } finally { setLoading(false) }
-  }, [search, statusFilter, priorityFilter])
+  }, [debouncedSearch, statusFilter, priorityFilter])
+  useEffect(() => { const timer = window.setTimeout(() => setDebouncedSearch(search), 350); return () => window.clearTimeout(timer) }, [search])
   useEffect(() => { const timer = window.setTimeout(() => { void loadTickets() }, 0); return () => window.clearTimeout(timer) }, [loadTickets])
   useEffect(() => { api<{ users: User[] }>('/users').then((result) => setUsers(result.users)).catch(() => undefined) }, [])
 
