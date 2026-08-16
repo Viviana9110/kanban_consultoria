@@ -90,9 +90,9 @@ npm test          # Vitest (una ejecución)
 npm run test:watch
 ```
 
-**45 tests** cubren schemas de validación, autenticación/autorización, CRUD, alcances por rol, protección IDOR, respuestas de IA (con cliente simulado), rate limiting, importación de recomendaciones y planes de acción. Los tests no hacen llamadas reales a OpenAI.
+**47 tests** cubren schemas de validación, autenticación/autorización, CRUD, alcances por rol, protección IDOR, respuestas de IA (con cliente simulado), rate limiting, importación de recomendaciones y planes de acción. Los tests no hacen llamadas reales a OpenAI.
 
-**E2E real (verificado, 36/36)**: flujo completo contra PostgreSQL y OpenAI reales (login, empresa, diagnóstico, DOFA, análisis IA, persistencia, importación, plan de acción, logout, permisos).
+**E2E real (verificado, 61/61)**: flujo completo contra PostgreSQL y OpenAI reales (login, empresa, diagnóstico, DOFA, análisis IA, persistencia, importación, plan de acción, logout, permisos).
 
 ## Lint y typecheck
 

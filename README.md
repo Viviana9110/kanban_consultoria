@@ -2,7 +2,7 @@
 
 Plataforma web para consultoras que quieren ordenar el trabajo operativo y llevar sus diagnósticos estratégicos de un tablero de ideas a un plan de acción medible. Autenticación con roles, gestión de tickets, portafolio de clientes, diagnósticos **DOFA** y un **análisis estratégico asistido por IA** con respuestas estructuradas y validadas.
 
-> Módulo inicial de operación: autenticación, dashboard, tickets, empresas, diagnósticos DOFA, análisis IA, recomendaciones y planes de acción.
+> **MVP v1.0.0** — módulo inicial de operación: autenticación, dashboard, tickets, empresas, diagnósticos DOFA, análisis IA, recomendaciones y planes de acción.
 
 ---
 
@@ -103,8 +103,8 @@ Detalles en [docs/security.md](docs/security.md).
 
 ## Testing
 
-- **45 tests** (Vitest + Supertest) sobre schemas de validación, autenticación/autorización, CRUD, alcances por rol, protección IDOR, respuesta IA (con cliente simulado, sin llamadas reales), rate limiting, importación de recomendaciones y planes de acción.
-- **E2E real (36/36 verificados)**: flujo completo contra PostgreSQL y OpenAI reales: login, empresa, diagnóstico, DOFA, análisis IA, persistencia, importación de recomendaciones, plan de acción, logout y permisos.
+- **47 tests** (Vitest + Supertest) sobre schemas de validación, autenticación/autorización, CRUD, alcances por rol, protección IDOR, respuesta IA (con cliente simulado, sin llamadas reales), rate limiting, importación de recomendaciones y planes de acción.
+- **E2E real (61/61 verificados)**: flujo completo contra PostgreSQL y OpenAI reales: login, empresa, diagnóstico, DOFA, análisis IA, persistencia, importación de recomendaciones, plan de acción, logout y permisos.
 
 ## Estructura del proyecto
 
@@ -252,12 +252,14 @@ Detalles de despliegue en [docs/development.md](docs/development.md).
 
 ## Estado actual del proyecto
 
+> Estado del release: **MVP v1.0.0** (tag `v1.0.0`).
+
 **Implementado**
 
 - Autenticación por sesión con roles y control de acceso por objeto.
 - Dashboard con métricas, tickets, empresas, diagnósticos DOFA, análisis IA, recomendaciones y planes de acción.
 - Seguridad integral (RBAC, IDOR, rate limiting, validación, cabeceras, secretos fuera del repositorio).
-- 45 tests unitarios/integración y E2E real verificado (36/36).
+- 47 tests unitarios/integración y E2E real verificado (61/61).
 - Build de producción para frontend y backend; `npm audit` con 0 vulnerabilidades.
 
 **Futuras mejoras (no implementadas)**
@@ -277,6 +279,6 @@ Detalles de despliegue en [docs/development.md](docs/development.md).
 - **Integración con OpenAI** (Responses API) con **respuestas estructuradas** validadas por JSON Schema + Zod.
 - **Análisis DOFA** conectado a estrategias y recomendaciones trazables generadas por IA.
 - **RBAC** (roles `SUPERUSER`/`USER`) y **protección contra IDOR** verificada con tests.
-- **45 tests** (Vitest + Supertest) en schemas, auth, CRUD, permisos e IA.
-- **E2E real** con 36/36 verificaciones contra PostgreSQL y OpenAI.
+- **47 tests** (Vitest + Supertest) en schemas, auth, CRUD, permisos e IA.
+- **E2E real** con 61/61 verificaciones contra PostgreSQL y OpenAI.
 - **`npm audit` con 0 vulnerabilidades** y endurecimiento de producción (HSTS, cookies `Secure`, guard de entorno, rate limiting).
