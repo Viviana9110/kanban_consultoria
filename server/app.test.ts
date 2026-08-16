@@ -306,6 +306,20 @@ describe('tickets API', () => {
     expect((await agent.patch(`/api/tickets/${ticket.id}`).send({ status: 'IN_PROGRESS' })).status).toBe(200)
   })
 
+  it('lets a user update their own ticket with the full frontend payload (no assignment field)', async () => {
+    const agent = request.agent(createApp(makeDb('USER')))
+    await agent.post('/api/auth/login').send({ email: member.email, password: 'Password123!' })
+    const updated = await agent.patch(`/api/tickets/${ticket.id}`).send({ title: ticket.title, description: ticket.description, priority: 'MEDIUM', status: 'RESOLVED' })
+    expect(updated.status).toBe(200)
+  })
+
+  it('rejects assignment changes (even null) by non-superusers', async () => {
+    const agent = request.agent(createApp(makeDb('USER', admin.id, member.id)))
+    await agent.post('/api/auth/login').send({ email: member.email, password: 'Password123!' })
+    const response = await agent.patch(`/api/tickets/${ticket.id}`).send({ status: 'IN_PROGRESS', assignedToId: null })
+    expect(response.status).toBe(403)
+  })
+
   it('allows the creator to delete a ticket and protects inaccessible resources', async () => {
     const agent = request.agent(createApp(makeDb('USER')))
     await agent.post('/api/auth/login').send({ email: member.email, password: 'Password123!' })

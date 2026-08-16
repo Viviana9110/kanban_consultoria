@@ -300,7 +300,8 @@ function Tickets({ user }: { user: User }) {
   async function saveTicket(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); setSaving(true); setError('')
     try {
-      const payload = { ...draft, assignedToId: draft.assignedToId || null }
+      const { assignedToId, ...draftWithoutAssignment } = draft
+      const payload = user.role === 'SUPERUSER' ? { ...draft, assignedToId: assignedToId || null } : draftWithoutAssignment
       const result = selected ? await api<{ ticket: Ticket }>(`/tickets/${selected.id}`, { method: 'PATCH', body: JSON.stringify(payload) }) : await api<{ ticket: Ticket }>('/tickets', { method: 'POST', body: JSON.stringify(payload) })
       setShowForm(false); setSelected(result.ticket); await loadTickets()
     } catch (requestError) { setError(requestError instanceof ApiError ? requestError.message : 'No se pudo guardar el ticket.') } finally { setSaving(false) }
