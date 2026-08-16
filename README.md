@@ -187,6 +187,8 @@ npx prisma migrate dev # Aplica migraciones y crea el esquema (desarrollo)
 npx prisma migrate deploy # Aplica migraciones existentes (producción)
 ```
 
+> `prisma` es una devDependency: `npx prisma migrate deploy` debe ejecutarse donde estén instaladas las dependencias de desarrollo (máquina de build/CI), no con `npm install --omit=dev`.
+
 ## Seed
 
 ```bash
@@ -198,6 +200,8 @@ Crea dos usuarios de desarrollo con la contraseña de `SEED_PASSWORD`:
 - `admin@kanban.local` — rol `SUPERUSER`
 - `usuario@kanban.local` — rol `USER`
 
+> El seed es **manual**: no existe ningún hook (`postinstall`, `prestart`) ni configuración de seed en `prisma.config.ts`, por lo que nunca se ejecuta automáticamente, tampoco en producción. En `NODE_ENV=production` exige `SEED_PASSWORD` explícita.
+
 ## Build de producción
 
 ```bash
@@ -208,8 +212,41 @@ npm run build:server # Solo backend
 ## Ejecución de producción
 
 ```bash
-npm run start
+npm run build   # Frontend (dist) + Backend (dist-server)
+npm run start   # node dist-server/index.js (requiere el build previo)
 ```
+
+Pasos del despliegue:
+
+1. **Base de datos**: `npx prisma migrate deploy` aplica las 5 migraciones a `DATABASE_URL` (ver nota de devDependencies en Migraciones).
+2. **Backend**: `npm run build` y `npm run start`. El arranque valida `NODE_ENV=production`, `DATABASE_URL` y `FRONTEND_URL` (rechaza valores de desarrollo) y habilita `Secure` en cookies y HSTS.
+3. **Frontend**: la API no sirve archivos estáticos; `dist/` se publica con un servidor estático (nginx, Caddy, CDN), que debe:
+
+   - servir `dist/` en `FRONTEND_URL` (o en el dominio público), y
+   - redirigir `/api/*` por proxy reverso al backend (`PORT`).
+
+   Ejemplo mínimo con nginx:
+
+   ```nginx
+   server {
+     listen 443 ssl;
+     server_name kanban.example.com;
+
+     root /srv/kanban/dist;
+     index index.html;
+
+     location /api/ {
+       proxy_pass http://127.0.0.1:4000;
+       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+       proxy_set_header X-Forwarded-Proto $scheme;
+     }
+
+     location / { try_files $uri /index.html; }
+   }
+   ```
+
+   Con el proxy reverso, ajusta `TRUST_PROXY_HOPS=1` para que el rate limiting use la IP real del cliente y las cookies `Secure` viajen por HTTPS.
+4. **Health check**: `GET /api/health` responde `{ "status": "ok" }` sin autenticación.
 
 Detalles de despliegue en [docs/development.md](docs/development.md).
 

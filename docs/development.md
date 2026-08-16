@@ -116,25 +116,69 @@ npm run build:server # Solo backend
 
 ## Producción
 
-1. Configura `.env` con `NODE_ENV=production`, `DATABASE_URL`, `FRONTEND_URL` y el resto de variables reales.
-2. Aplica migraciones y construye:
+### Checklist de despliegue
 
-```bash
-npx prisma migrate deploy
-npm run build
-```
+1. **Entorno** (`.env` del servidor, con valores reales):
 
-3. Arranca el backend compilado:
+   - `NODE_ENV=production`
+   - `PORT` (puerto del backend)
+   - `DATABASE_URL` (PostgreSQL administrado, ej. RDS/Supabase/Neon)
+   - `FRONTEND_URL` (origen público del frontend; CORS)
+   - `OPENAI_API_KEY` (clave real del backend)
+   - `TRUST_PROXY_HOPS` (1 por nivel de proxy reverso)
+   - `SESSION_COOKIE` / `SESSION_DAYS` / `OPENAI_MODEL` (opcionales)
 
-```bash
-npm run start   # node dist-server/index.js
-```
+2. **Base de datos** — aplicar migraciones. `prisma` es una devDependency, así que esto debe ejecutarse donde estén instaladas las dependencias de desarrollo (build/CI), no con `npm install --omit=dev`:
+
+   ```bash
+   npx prisma migrate deploy   # aplica migraciones pendientes (idempotente)
+   npx prisma migrate status   # verifica que la BD esté al día
+   ```
+
+   El seed **no** se ejecuta automáticamente: no hay hooks ni config de seed en `prisma.config.ts`. Para crear usuarios iniciales, ejecútalo manualmente una vez con `SEED_PASSWORD` real (`npm run db:seed`; en producción rechaza el valor por defecto).
+
+3. **Build**:
+
+   ```bash
+   npm run build   # Frontend (dist/) + Backend (dist-server/)
+   ```
+
+4. **Backend** — arranca el compilado:
+
+   ```bash
+   npm run start   # node dist-server/index.js (requiere el build previo)
+   ```
+
+   Al iniciar en `NODE_ENV=production` valida `DATABASE_URL` y `FRONTEND_URL` (rechaza los valores de desarrollo), habilita cookies `Secure`, HSTS y el rate limiting con la IP real (`TRUST_PROXY_HOPS`).
+
+5. **Frontend** — la API **no sirve archivos estáticos**; publica `dist/` con un servidor estático (nginx, Caddy, CDN) que redirija `/api/*` al backend por proxy reverso. Ejemplo nginx:
+
+   ```nginx
+   server {
+     listen 443 ssl;
+     server_name kanban.example.com;
+
+     root /srv/kanban/dist;
+     index index.html;
+
+     location /api/ {
+       proxy_pass http://127.0.0.1:4000;
+       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+       proxy_set_header X-Forwarded-Proto $scheme;
+     }
+
+     location / { try_files $uri /index.html; }
+   }
+   ```
+
+6. **Health check**: `GET /api/health` responde `200 { "status": "ok" }` sin autenticación (sonda de liveness del contenedor/orquestador).
 
 Consideraciones:
 
 - En producción el backend no arranca si `DATABASE_URL` o `FRONTEND_URL` son los valores de desarrollo.
 - Detrás de un proxy reverso, ajusta `TRUST_PROXY_HOPS` para que el rate limiting use la IP real del cliente.
 - En producción la cookie de sesión usa `Secure` y se envía HSTS.
+- `migrate deploy` es idempotente: no hay migraciones pendientes → no aplica nada.
 
 ## Flujo de trabajo sugerido
 
