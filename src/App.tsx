@@ -6,11 +6,10 @@ import { KPICard } from './components/ui/KPICard'
 import { EmptyState } from './components/ui/EmptyState'
 import { LoadingState } from './components/ui/LoadingState'
 import { DiagnosticStatusChart } from './components/charts/DiagnosticStatusChart'
-import { ActionStatusChart } from './components/charts/ActionStatusChart'
 import { RecommendationChart } from './components/charts/RecommendationChart'
 import './App.css'
 
-type View = 'dashboard' | 'tickets' | 'companies'
+type View = 'dashboard' | 'tickets' | 'companies' | 'diagnostics' | 'swot' | 'recommendations' | 'action-plans' | 'users'
 type CompaniesIntent = { kind: 'create-company' } | { kind: 'create-diagnostic' } | { kind: 'open-company'; companyId: string } | { kind: 'open-first-diagnostic' } | { kind: 'open-diagnostic'; companyId: string; diagnosticId: string }
 type DetailIntent = { kind: 'create-diagnostic' } | { kind: 'open-first-diagnostic' } | { kind: 'open-diagnostic'; diagnosticId: string }
 type TicketDraft = { title: string; description: string; priority: TicketPriority; status: TicketStatus; assignedToId: string }
@@ -128,31 +127,124 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     onLogout()
   }
 
+  function navigateToView(targetView: View, intent?: CompaniesIntent) {
+    setView(targetView)
+    if (intent) setCompaniesIntent(intent)
+    setMobileMenu(false)
+  }
+
+  const viewLabels: Record<View, string> = {
+    dashboard: 'Resumen',
+    companies: 'Empresas',
+    diagnostics: 'Diagnósticos',
+    swot: 'Matriz DOFA',
+    recommendations: 'Recomendaciones',
+    'action-plans': 'Planes de acción',
+    tickets: 'Tickets',
+    users: 'Usuarios',
+  }
+
+  const qualityViews: Array<{ key: View; icon: string; label: string }> = [
+    { key: 'companies', icon: '▥', label: 'Empresas' },
+    { key: 'diagnostics', icon: '◫', label: 'Diagnósticos' },
+    { key: 'swot', icon: '◈', label: 'Matriz DOFA' },
+    { key: 'recommendations', icon: '◆', label: 'Recomendaciones' },
+    { key: 'action-plans', icon: '▤', label: 'Planes de acción' },
+  ]
+
+  const qualityViewsIntentMap: Record<string, CompaniesIntent> = {
+    companies: { kind: 'create-company' },
+    diagnostics: { kind: 'open-first-diagnostic' },
+    swot: { kind: 'open-first-diagnostic' },
+    recommendations: { kind: 'open-first-diagnostic' },
+    'action-plans': { kind: 'open-first-diagnostic' },
+  }
+
   return (
     <div className="app-shell">
       <aside className={`sidebar ${mobileMenu ? 'open' : ''}`}>
-        <div className="sidebar-top"><div className="brand"><span className="brand-mark small">K</span><span>Kanban <b>Consultoria</b></span></div><button className="icon-button mobile-only" onClick={() => setMobileMenu(false)} aria-label="Cerrar menú">×</button></div>
+        <div className="sidebar-top">
+          <div className="brand"><span className="brand-mark small">K</span><span>Kanban <b>Consultoria</b></span></div>
+          <button className="icon-button mobile-only" onClick={() => setMobileMenu(false)} aria-label="Cerrar menú">×</button>
+        </div>
         <div className="workspace-chip"><span className="workspace-dot" /><div><small>ESPACIO ACTIVO</small><strong>Operaciones</strong></div><span className="chevron">⌄</span></div>
-        <nav>
-          <p className="nav-heading">MENÚ PRINCIPAL</p>
-          <button className={`nav-item ${view === 'dashboard' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setMobileMenu(false) }}><span className="nav-icon">⌂</span> Resumen</button>
-          <button className={`nav-item ${view === 'tickets' ? 'active' : ''}`} onClick={() => { setView('tickets'); setMobileMenu(false) }}><span className="nav-icon">▤</span> Tickets</button>
-          <button className={`nav-item ${view === 'companies' ? 'active' : ''}`} onClick={() => { setView('companies'); setMobileMenu(false) }}><span className="nav-icon">▥</span> Empresas</button>
-          <p className="nav-heading second">GESTIÓN</p>
-          <button className="nav-item disabled" disabled><span className="nav-icon">◌</span> Reportes <span className="soon">Pronto</span></button>
+        <nav className="sidebar-nav">
+          <p className="nav-heading">PRINCIPAL</p>
+          <button className={`nav-item ${view === 'dashboard' ? 'active' : ''}`} onClick={() => navigateToView('dashboard')}>
+            <span className="nav-icon">⌂</span> Dashboard
+          </button>
+
+          <p className="nav-heading">GESTIÓN DE CALIDAD</p>
+          {qualityViews.map((item) => (
+            <button key={item.key} className={`nav-item ${view === item.key ? 'active' : ''}`} onClick={() => navigateToView(item.key, qualityViewsIntentMap[item.key])}>
+              <span className="nav-icon">{item.icon}</span> {item.label}
+            </button>
+          ))}
+
+          <p className="nav-heading">OPERACIÓN</p>
+          <button className={`nav-item ${view === 'tickets' ? 'active' : ''}`} onClick={() => navigateToView('tickets')}>
+            <span className="nav-icon">▤</span> Tickets
+          </button>
+
+          {user.role === 'SUPERUSER' && (
+            <>
+              <p className="nav-heading">ADMINISTRACIÓN</p>
+              <button className={`nav-item ${view === 'users' ? 'active' : ''}`} onClick={() => navigateToView('users')}>
+                <span className="nav-icon">◉</span> Usuarios
+              </button>
+            </>
+          )}
         </nav>
-        <div className="sidebar-bottom"><div className="help-card"><span className="help-icon">?</span><div><strong>¿Necesitas ayuda?</strong><small>Habla con soporte</small></div></div><div className="profile"><div className="avatar">{initials(user.name)}</div><div className="profile-text"><strong>{user.name}</strong><small>{user.role === 'SUPERUSER' ? 'Administrador' : 'Colaborador'}</small></div><button className="icon-button" onClick={logout} aria-label="Cerrar sesión">↗</button></div></div>
+        <div className="sidebar-bottom">
+          <div className="profile">
+            <div className="avatar">{initials(user.name)}</div>
+            <div className="profile-text"><strong>{user.name}</strong><small>{user.role === 'SUPERUSER' ? 'Administrador' : 'Colaborador'}</small></div>
+            <button className="icon-button" onClick={logout} aria-label="Cerrar sesión">↗</button>
+          </div>
+        </div>
       </aside>
       {mobileMenu && <button className="scrim" onClick={() => setMobileMenu(false)} aria-label="Cerrar menú" />}
       <main className="main-content">
-        <header className="topbar"><button className="icon-button mobile-only menu-button" onClick={() => setMobileMenu(true)} aria-label="Abrir menú">☰</button><div className="breadcrumb"><span>Operaciones</span><b>/</b><strong>{view === 'dashboard' ? 'Resumen' : view === 'tickets' ? 'Tickets' : 'Empresas'}</strong></div><div className="topbar-actions"><span className="date-label">{new Intl.DateTimeFormat('es-CO', { dateStyle: 'long' }).format(new Date())}</span><span className="notification" title="Notificaciones próximamente">♧<i /></span><div className="avatar top-avatar">{initials(user.name)}</div></div></header>
-        {view === 'dashboard' ? <Dashboard user={user} onViewTickets={() => setView('tickets')} onNavigate={(intent) => { setCompaniesIntent(intent); setView('companies') }} /> : view === 'tickets' ? <Tickets user={user} /> : <Companies user={user} intent={companiesIntent} onConsumeIntent={consumeCompaniesIntent} />}
+        <header className="topbar">
+          <button className="icon-button mobile-only menu-button" onClick={() => setMobileMenu(true)} aria-label="Abrir menú">☰</button>
+          <div className="breadcrumb"><span>Operaciones</span><b>/</b><strong>{viewLabels[view]}</strong></div>
+          <div className="topbar-actions">
+            <span className="date-label">{new Intl.DateTimeFormat('es-CO', { dateStyle: 'long' }).format(new Date())}</span>
+            <span className="notification" title="Notificaciones próximamente">♧<i /></span>
+            <div className="avatar top-avatar">{initials(user.name)}</div>
+          </div>
+        </header>
+        {view === 'dashboard' && <Dashboard user={user} onNavigate={navigateToView} />}
+        {view === 'tickets' && <Tickets user={user} />}
+        {(view === 'companies' || view === 'diagnostics' || view === 'swot' || view === 'recommendations' || view === 'action-plans') && (
+          <Companies user={user} intent={companiesIntent} onConsumeIntent={consumeCompaniesIntent} />
+        )}
+        {view === 'users' && user.role === 'SUPERUSER' && <UsersPlaceholder />}
       </main>
     </div>
   )
 }
 
-function Dashboard({ user, onViewTickets, onNavigate }: { user: User; onViewTickets: () => void; onNavigate: (intent: CompaniesIntent) => void }) {
+function UsersPlaceholder() {
+  return (
+    <div className="page">
+      <div className="page-heading">
+        <div>
+          <p className="eyebrow">ADMINISTRACIÓN</p>
+          <h1>Usuarios</h1>
+          <p className="muted">Gestiona los usuarios del sistema.</p>
+        </div>
+      </div>
+      <EmptyState
+        title="Gestión de usuarios"
+        text="Módulo de administración de usuarios. Próximamente disponible."
+        icon="◉"
+      />
+    </div>
+  )
+}
+
+function Dashboard({ user, onNavigate }: { user: User; onNavigate: (view: View, intent?: CompaniesIntent) => void }) {
   const [data, setData] = useState<DashboardData | null>(null)
   const [error, setError] = useState('')
   useEffect(() => { api<DashboardData>('/dashboard').then(setData).catch(() => setError('No pudimos cargar el resumen. Intenta de nuevo.')) }, [])
@@ -160,12 +252,108 @@ function Dashboard({ user, onViewTickets, onNavigate }: { user: User; onViewTick
   if (!data) return <LoadingState />
   const { summary } = data
   const greeting = new Date().getHours() < 12 ? 'Buenos días' : new Date().getHours() < 19 ? 'Buenas tardes' : 'Buenas noches'
-  return <div className="page"><div className="page-heading"><div><p className="eyebrow">VISTA GENERAL</p><h1>{greeting}, {firstName(user.name)} <span className="wave">✦</span></h1><p className="muted">Métricas de calidad y seguimiento de tu gestión.</p></div><div className="page-actions"><button className="button secondary" onClick={onViewTickets}>Tickets</button></div></div><section className="quick-access"><QuickAccess icon="+" label="Nueva empresa" hint="Registrar cliente" onClick={() => onNavigate({ kind: 'create-company' })} /><QuickAccess icon="◈" label="Nuevo diagnóstico" hint="Iniciar evaluación" onClick={() => onNavigate({ kind: 'create-diagnostic' })} /><QuickAccess icon="◆" label="Ver recomendaciones" hint="Atender pendientes" onClick={() => onNavigate({ kind: 'open-first-diagnostic' })} /><QuickAccess icon="▤" label="Ver planes de acción" hint="Revisar ejecución" onClick={() => onNavigate({ kind: 'open-first-diagnostic' })} /></section><section className="metric-grid"><KPICard icon="▥" label="Empresas" value={summary.totalCompanies} tone="blue" /><KPICard icon="◫" label="Diagnósticos" value={summary.totalDiagnostics} tone="purple" /><KPICard icon="◷" label="En progreso" value={summary.inProgressDiagnostics} tone="amber" /><KPICard icon="✓" label="Completados" value={summary.completedDiagnostics} tone="green" /><KPICard icon="◆" label="Recomendaciones" value={summary.pendingRecommendations} tone="red" /></section><section className="metric-grid secondary"><KPICard icon="▤" label="Planes activos" value={summary.activeActionPlans} tone="blue" /><KPICard icon="↗" label="Acciones en curso" value={summary.pendingActionItems} tone="purple" /><KPICard icon="!" label="Acciones vencidas" value={summary.overdueActionItems} tone="red" /></section><div className="chart-grid"><DiagnosticStatusChart draft={summary.draftDiagnostics} inProgress={summary.inProgressDiagnostics} completed={summary.completedDiagnostics} /><ActionStatusChart pending={summary.pendingActionItems} overdue={summary.overdueActionItems} /><RecommendationChart recommendations={data.priorityRecommendations} /></div><div className="dashboard-grid quality-grid"><section className="panel"><div className="panel-heading"><div><h2>Diagnósticos recientes</h2><p className="muted">Última actualización</p></div></div>{data.recentDiagnostics.length ? <div className="quality-list">{data.recentDiagnostics.map((item) => <QualityRow key={item.id} title={item.title} subtitle={item.company.name} meta={diagnosticStatusLabel[item.status]} tone={item.status === 'COMPLETED' ? 'green' : item.status === 'IN_PROGRESS' ? 'amber' : 'blue'} onClick={() => onNavigate({ kind: 'open-diagnostic', companyId: item.company.id, diagnosticId: item.id })} />)}</div> : <EmptyState compact title="Sin diagnósticos" text="Crea un diagnóstico para comenzar." />}</section><section className="panel"><div className="panel-heading"><div><h2>Recomendaciones pendientes</h2><p className="muted">Por atender</p></div></div>{data.priorityRecommendations.length ? <div className="quality-list">{data.priorityRecommendations.map((item) => <QualityRow key={item.id} title={item.title} subtitle={item.diagnostic.title} meta={item.diagnostic.company.name} tone={item.priority === 'HIGH' ? 'red' : item.priority === 'MEDIUM' ? 'amber' : 'blue'} onClick={() => onNavigate({ kind: 'open-company', companyId: item.diagnostic.company.id })} />)}</div> : <EmptyState compact title="Sin recomendaciones" text="Importa recomendaciones desde un análisis IA." />}</section><section className="panel"><div className="panel-heading"><div><h2>Próximas acciones</h2><p className="muted">Por fecha límite</p></div></div>{data.upcomingActions.length ? <div className="quality-list">{data.upcomingActions.map((item) => <QualityRow key={item.id} title={item.title} subtitle={item.actionPlan.diagnostic.company.name} meta={item.dueDate ? `Vence ${relativeDate(item.dueDate)}` : 'Sin fecha'} tone={item.status === 'IN_PROGRESS' ? 'amber' : 'blue'} onClick={() => onNavigate({ kind: 'open-company', companyId: item.actionPlan.diagnostic.company.id })} />)}</div> : <EmptyState compact title="Sin acciones próximas" text="Las acciones con fecha límite aparecerán aquí." />}</section><section className="panel"><div className="panel-heading"><div><h2>Empresas recientes</h2><p className="muted">Última actualización</p></div></div>{data.recentCompanies.length ? <div className="quality-list">{data.recentCompanies.map((item) => <QualityRow key={item.id} title={item.name} subtitle={item.industry} meta={item.consultant?.name ?? 'Sin asignar'} tone="blue" onClick={() => onNavigate({ kind: 'open-company', companyId: item.id })} />)}</div> : <EmptyState compact title="Sin empresas" text="Registra la primera empresa." />}</section></div></div>
+
+  const attentionItems: Array<{ type: string; label: string; count: number; tone: string; view: View }> = []
+  if (summary.overdueActionItems > 0) attentionItems.push({ type: 'alert', label: 'Acciones vencidas', count: summary.overdueActionItems, tone: 'red', view: 'action-plans' })
+  if (summary.inProgressDiagnostics > 0) attentionItems.push({ type: 'progress', label: 'Diagnósticos en curso', count: summary.inProgressDiagnostics, tone: 'amber', view: 'diagnostics' })
+  if (summary.pendingRecommendations > 0) attentionItems.push({ type: 'pending', label: 'Recomendaciones pendientes', count: summary.pendingRecommendations, tone: 'purple', view: 'recommendations' })
+  if (summary.pendingActionItems > summary.overdueActionItems) attentionItems.push({ type: 'tasks', label: 'Acciones pendientes', count: summary.pendingActionItems - summary.overdueActionItems, tone: 'blue', view: 'action-plans' })
+
+  return (
+    <div className="page">
+      <div className="page-heading">
+        <div>
+          <p className="eyebrow">DASHBOARD EJECUTIVO</p>
+          <h1>{greeting}, {firstName(user.name)} <span className="wave">✦</span></h1>
+          <p className="muted">Vista consolidada de la gestión de calidad de tu operación.</p>
+        </div>
+        <div className="page-actions">
+          <button className="button secondary" onClick={() => onNavigate('companies', { kind: 'create-company' })}>+ Nueva empresa</button>
+          <button className="button primary" onClick={() => onNavigate('diagnostics', { kind: 'open-first-diagnostic' })}>Ver diagnósticos</button>
+        </div>
+      </div>
+
+      <section className="metric-grid executive-kpis">
+        <KPICard icon="▥" label="Empresas" value={summary.totalCompanies} tone="blue" />
+        <KPICard icon="◫" label="Diagnósticos" value={summary.totalDiagnostics} tone="purple" />
+        <KPICard icon="◆" label="Recomendaciones" value={summary.pendingRecommendations} tone="red" />
+        <KPICard icon="▤" label="Planes activos" value={summary.activeActionPlans} tone="green" />
+        <KPICard icon="↗" label="Acciones pendientes" value={summary.pendingActionItems} tone="amber" />
+        <KPICard icon="!" label="Acciones vencidas" value={summary.overdueActionItems} tone="red" />
+      </section>
+
+      <div className="chart-grid">
+        <DiagnosticStatusChart draft={summary.draftDiagnostics} inProgress={summary.inProgressDiagnostics} completed={summary.completedDiagnostics} />
+        <RecommendationChart recommendations={data.priorityRecommendations} />
+      </div>
+
+      {attentionItems.length > 0 && (
+        <section className="attention-section">
+          <div className="attention-heading">
+            <div>
+              <p className="detail-label">REQUIERE ATENCIÓN</p>
+              <h3>Puntos que necesitan tu revisión</h3>
+            </div>
+          </div>
+          <div className="attention-grid">
+            {attentionItems.map((item) => (
+              <button key={item.type} className={`attention-card ${item.tone}`} onClick={() => onNavigate(item.view, { kind: 'open-first-diagnostic' })}>
+                <span className={`attention-count ${item.tone}`}>{item.count}</span>
+                <span className="attention-label">{item.label}</span>
+                <span className="attention-arrow">→</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="dashboard-columns">
+        <div className="dashboard-col">
+          <div className="panel">
+            <div className="panel-heading">
+              <div><p className="detail-label">ACTIVIDAD RECIENTE</p><h2>Diagnósticos</h2></div>
+              <button className="text-button" onClick={() => onNavigate('diagnostics', { kind: 'open-first-diagnostic' })}>Ver todos →</button>
+            </div>
+            <div className="quality-list">
+              {data.recentDiagnostics.length === 0 ? (
+                <div className="empty-state compact"><p style={{ margin: 0, color: '#64748b', fontSize: 12 }}>Sin diagnósticos recientes</p></div>
+              ) : (
+                data.recentDiagnostics.map((d) => (
+                  <button key={d.id} className="quality-row" onClick={() => onNavigate('companies', { kind: 'open-diagnostic', companyId: d.company.id, diagnosticId: d.id })}>
+                    <span className={`quality-dot ${d.status === 'COMPLETED' ? 'green' : d.status === 'IN_PROGRESS' ? 'amber' : 'blue'}`} />
+                    <div><strong>{d.title}</strong><small>{d.company.name}</small></div>
+                    <span className="quality-meta">{relativeDate(d.updatedAt)}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="dashboard-col">
+          <div className="panel">
+            <div className="panel-heading">
+              <div><p className="detail-label">PRÓXIMAS ACCIONES</p><h2>Seguimiento</h2></div>
+              <button className="text-button" onClick={() => onNavigate('action-plans', { kind: 'open-first-diagnostic' })}>Ver todas →</button>
+            </div>
+            <div className="quality-list">
+              {data.upcomingActions.length === 0 ? (
+                <div className="empty-state compact"><p style={{ margin: 0, color: '#64748b', fontSize: 12 }}>Sin acciones pendientes</p></div>
+              ) : (
+                data.upcomingActions.map((a) => (
+                  <button key={a.id} className="quality-row" onClick={() => onNavigate('companies', { kind: 'open-diagnostic', companyId: a.actionPlan.diagnostic.company.id, diagnosticId: a.actionPlan.diagnostic.id })}>
+                    <span className={`quality-dot ${a.status === 'COMPLETED' ? 'green' : a.status === 'IN_PROGRESS' ? 'amber' : a.dueDate && new Date(a.dueDate) < new Date() ? 'red' : 'blue'}`} />
+                    <div><strong>{a.title}</strong><small>{a.actionPlan.diagnostic.company.name}</small></div>
+                    <span className="quality-meta">{a.dueDate ? relativeDate(a.dueDate) : 'Sin fecha'}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  )
 }
-
-function QuickAccess({ icon, label, hint, onClick }: { icon: string; label: string; hint: string; onClick: () => void }) { return <button className="quick-access-card" onClick={onClick}><span className="quick-access-icon">{icon}</span><div><strong>{label}</strong><small>{hint}</small></div><span className="quick-access-arrow">→</span></button> }
-
-function QualityRow({ title, subtitle, meta, tone, onClick }: { title: string; subtitle: string; meta: string; tone: string; onClick: () => void }) { return <button className="quality-row" onClick={onClick}><span className={`quality-dot ${tone}`} /><div><strong>{title}</strong><small>{subtitle}</small></div><span className="quality-meta">{meta}</span></button> }
 
 function Companies({ user, intent, onConsumeIntent }: { user: User; intent: CompaniesIntent | null; onConsumeIntent: () => void }) {
   const [companies, setCompanies] = useState<Company[]>([])
