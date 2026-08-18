@@ -2,8 +2,14 @@ import 'dotenv/config'
 import { PrismaClient, Role } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import bcrypt from 'bcryptjs'
+import type { PoolConfig } from 'pg'
 
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/kanban_consultoria' })
+const adapter = new PrismaPg({
+  connectionString:
+    process.env.DATABASE_URL ??
+    'postgresql://postgres:postgres@localhost:5432/kanban_consultoria',
+  pipeline: true,
+} as PoolConfig)
 const prisma = new PrismaClient({ adapter })
 
 async function main() {
