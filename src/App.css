@@ -105,6 +105,7 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
 .login-art::after { content: ''; position: absolute; width: 500px; height: 500px; right: -180px; bottom: -160px; border: 1px solid rgba(148,163,184,.15); border-radius: 50%; box-shadow: 0 0 0 80px rgba(37,99,235,.03), 0 0 0 160px rgba(37,99,235,.02); }
 .brand-mark { width: 44px; height: 44px; display: grid; place-items: center; color: white; font: 700 20px 'Space Grotesk', sans-serif; border-radius: var(--radius-lg); background: var(--blue); box-shadow: 0 8px 24px rgba(37,99,235,.3); }
 .brand-mark.small { width: 32px; height: 32px; font-size: 14px; border-radius: var(--radius); }
+.brand-mark img { width: 100%; height: 100%; object-fit: contain; border-radius: inherit; }
 .login-art .brand-mark { position: absolute; top: 40px; left: clamp(40px, 7vw, 100px); }
 .login-art h1 { margin: 0; font: 700 clamp(38px, 4vw, 56px)/1.08 'Space Grotesk', sans-serif; letter-spacing: -2px; }
 .login-art h1 em { color: #60a5fa; font-style: normal; }

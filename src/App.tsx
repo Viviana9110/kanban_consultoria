@@ -7,6 +7,7 @@ import { EmptyState } from './components/ui/EmptyState'
 import { LoadingState } from './components/ui/LoadingState'
 import { DiagnosticStatusChart } from './components/charts/DiagnosticStatusChart'
 import { RecommendationChart } from './components/charts/RecommendationChart'
+import logo from './assets/logokanban.png'
 import './App.css'
 
 type View = 'dashboard' | 'tickets' | 'companies' | 'diagnostics' | 'swot' | 'recommendations' | 'action-plans' | 'users'
@@ -92,7 +93,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
   return (
     <main className="login-page">
       <section className="login-art">
-        <div className="brand-mark">K</div>
+        <div className="brand-mark"><img src={logo} alt="Kanban Consultoría" /></div>
         <p className="eyebrow light">KANBAN CONSULTORIA</p>
         <h1>Ordena el trabajo.<br /><em>Hazlo avanzar.</em></h1>
         <p className="art-copy">El centro operativo para convertir cada solicitud en progreso medible.</p>
@@ -101,7 +102,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
       </section>
       <section className="login-card-wrap">
         <form className="login-card" onSubmit={submit}>
-          <div className="mobile-brand"><span className="brand-mark small">K</span><strong>Kanban</strong></div>
+          <div className="mobile-brand"><span className="brand-mark small"><img src={logo} alt="Kanban Consultoría" /></span><strong>Kanban</strong></div>
           <p className="eyebrow">ESPACIO DE TRABAJO</p>
           <h2>Bienvenido de nuevo</h2>
           <p className="muted">Ingresa para continuar con tu operación.</p>
@@ -164,7 +165,7 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
     <div className="app-shell">
       <aside className={`sidebar ${mobileMenu ? 'open' : ''}`}>
         <div className="sidebar-top">
-          <div className="brand"><span className="brand-mark small">K</span><span>Kanban <b>Consultoria</b></span></div>
+          <div className="brand"><span className="brand-mark small"><img src={logo} alt="Kanban Consultoría" /></span><span>Kanban <b>Consultoria</b></span></div>
           <button className="icon-button mobile-only" onClick={() => setMobileMenu(false)} aria-label="Cerrar menú">×</button>
         </div>
         <div className="workspace-chip"><span className="workspace-dot" /><div><small>ESPACIO ACTIVO</small><strong>Operaciones</strong></div><span className="chevron">⌄</span></div>
