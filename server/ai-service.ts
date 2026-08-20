@@ -70,8 +70,26 @@ export class AIService {
       if (!parsed.success) throw new AIServiceError('INVALID_RESPONSE')
       return parsed.data
     } catch (error) {
-      if (error instanceof AIServiceError) throw error
-      throw new AIServiceError('PROVIDER_ERROR')
-    }
+  if (error instanceof AIServiceError) {
+    throw error
+  }
+
+  const providerError = error as {
+    status?: number
+    code?: string
+    message?: string
+    request_id?: string
+  }
+
+  console.error('[AIService] OpenAI provider error', {
+    status: providerError.status,
+    code: providerError.code,
+    message: providerError.message,
+    request_id: providerError.request_id,
+    model: env.OPENAI_MODEL,
+  })
+
+  throw new AIServiceError('PROVIDER_ERROR')
+}
   }
 }
