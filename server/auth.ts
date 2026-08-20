@@ -18,7 +18,7 @@ export const createSession = async (db: PrismaClient, userId: string, response: 
   const session = await db.session.create({ data: { tokenHash: hashToken(token), userId, expiresAt } })
   response.cookie(env.SESSION_COOKIE, token, {
     httpOnly: true,
-    sameSite: 'lax',
+    sameSite: env.NODE_ENV === 'production' ? 'none' : 'lax',
     secure: env.NODE_ENV === 'production',
     expires: session.expiresAt,
     path: '/',
@@ -63,4 +63,4 @@ export const authorize = (...roles: Role[]) => (request: Request, response: Resp
   next()
 }
 
-export const clearSessionCookie = (response: Response) => response.clearCookie(env.SESSION_COOKIE, { httpOnly: true, sameSite: 'lax', secure: env.NODE_ENV === 'production', path: '/' })
+export const clearSessionCookie = (response: Response) => response.clearCookie(env.SESSION_COOKIE, { httpOnly: true, sameSite: env.NODE_ENV === 'production' ? 'none' : 'lax', secure: env.NODE_ENV === 'production', path: '/' })
