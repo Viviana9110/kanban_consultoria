@@ -92,27 +92,19 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
 
   return (
     <main className="login-page">
-      <section className="login-art">
-        <div className="brand-mark"><img src={logo} alt="Kanban Consultoría" /></div>
-        <p className="eyebrow light">KANBAN CONSULTORIA</p>
-        <h1>Ordena el trabajo.<br /><em>Hazlo avanzar.</em></h1>
-        <p className="art-copy">El centro operativo para convertir cada solicitud en progreso medible.</p>
-        <div className="art-line" />
-        <span className="art-note">Soporte y mejora continua, en un solo lugar.</span>
-      </section>
-      <section className="login-card-wrap">
-        <form className="login-card" onSubmit={submit}>
-          <div className="mobile-brand"><span className="brand-mark small"><img src={logo} alt="Kanban Consultoría" /></span><strong>Kanban</strong></div>
-          <p className="eyebrow">ESPACIO DE TRABAJO</p>
-          <h2>Bienvenido de nuevo</h2>
-          <p className="muted">Ingresa para continuar con tu operación.</p>
+      <div className="login-card">
+        <img src={logo} alt="Kanban Consultoría" className="login-logo" />
+        <p className="eyebrow">ESPACIO DE TRABAJO</p>
+        <h2>Bienvenido de nuevo</h2>
+        <p className="muted">Ingresa para continuar con tu operación.</p>
+        <form onSubmit={submit}>
           <label>Correo electrónico<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="tu@empresa.com" autoComplete="email" required /></label>
           <label>Contraseña<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="••••••••" autoComplete="current-password" minLength={8} required /></label>
           {error && <div className="form-error" role="alert">{error}</div>}
           <button className="button primary full" disabled={loading}>{loading ? <><span className="button-loader" /> Verificando...</> : 'Entrar al espacio'}</button>
-          <p className="security-note"><span>✦</span> Sesión protegida y cifrada</p>
         </form>
-      </section>
+        <p className="security-note"><span>✦</span> Sesión protegida y cifrada</p>
+      </div>
     </main>
   )
 }
